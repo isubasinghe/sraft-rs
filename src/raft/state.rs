@@ -63,7 +63,8 @@ pub struct Raft
 {
     state_data: StateData,
     node_id: Uuid,
-    election_handle: Option<SpawnHandle>
+    election_handle: Option<SpawnHandle>,
+    nodes: HashMap<Uuid, Addr<Raft>>
 }
 
 impl Raft {
@@ -101,11 +102,12 @@ impl Handler<StateError> for Raft {
                     last_term
                     );
         
-        self.election_handle = self.election_handle.map(|x| {
+        // Cancel the old election timer
+        self.election_handle.map(|x| {
             ctx.cancel_future(x);
-            None
-        }).flatten();
+        });
 
+        // Start a new election timer
         self.election_handle = Some(ctx.run_later(Duration::from_secs(1), |_, ctx| {
             ctx.address().do_send(StateError::Timeout);
         }));
@@ -150,11 +152,37 @@ impl Handler<VoteResponse> for Raft {
         if (self.state_data.current_role == Role::Candidate) && 
             self.state_data.current_term == msg.1 && msg.2 {
             
+            self.state_data.votes_received.insert(msg.0);
+            if self.state_data.votes_received.len() >= ((self.nodes.len() + 1) / 2) {
+
+                self.state_data.current_role = Role::Leader;
+                self.state_data.current_leader = Some(self.node_id);
+                
+                match self.election_handle {
+                    Some(handle) => {ctx.cancel_future(handle);}
+                    None => {}
+                }
+                self.election_handle = None;
+
+                for (uuid, _) in &self.nodes {
+                    if *uuid != self.node_id {
+                        self.state_data.sent_length.insert(*uuid, self.state_data.log.len() as u64);
+                        self.state_data.acked_length.insert(*uuid, 0);
+
+                        // REPLICATELOG(nodeId, follower)
+                    }
+                }
+
+
+            }
+
+
         }else {
             match self.election_handle {
                 Some(handle) => {ctx.cancel_future(handle);}
                 None => {}
             }
+            self.election_handle = None;
         }
         ()
     }
