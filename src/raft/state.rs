@@ -4,6 +4,7 @@ use std::collections::{HashSet, HashMap};
 use std::iter::FromIterator;
 use std::time::Duration;
 use serde::{Serialize, Deserialize};
+use std::rc::Rc;
 
 #[derive(Eq, PartialEq)]
 pub enum Role {
@@ -16,7 +17,7 @@ pub enum Role {
 struct StateData {
     current_term: u64,
     voted_for: Option<Uuid>,
-    log: Vec<(Vec<u8>, u64)>,
+    log: Vec<(Rc<Vec<u8>>, u64)>,
     commit_length: u64,
     current_role: Role,
     current_leader: Option<Uuid>,
@@ -47,6 +48,22 @@ impl Default for StateData
 pub enum StateError {
     Crash,
     Timeout
+}
+
+#[derive(Message)]
+#[rtype(result="()")]
+pub struct ReplicateLog {
+    leader_id: Uuid, 
+    follower_id: Uuid
+}
+
+#[derive(Message)]
+#[rtype(result="()")]
+pub struct BroadcastMsg(Msg);
+
+pub struct Msg {
+    data: Rc<Vec<u8>>, 
+    uuid: Uuid
 }
 
 #[derive(MessageResponse)]
@@ -101,7 +118,6 @@ impl Handler<StateError> for Raft {
                     self.state_data.log.len() as u64, 
                     last_term
                     );
-        
         // Cancel the old election timer
         self.election_handle.map(|x| {
             ctx.cancel_future(x);
@@ -184,6 +200,35 @@ impl Handler<VoteResponse> for Raft {
             }
             self.election_handle = None;
         }
+        ()
+    }
+}
+
+impl Handler<BroadcastMsg> for Raft {
+    type Result = ();
+
+    fn handle(&mut self, msg: BroadcastMsg, ctx: &mut Context<Self>) -> Self::Result {
+        if self.state_data.current_role == Role::Leader {
+            self.state_data.log.push((msg.0.data.clone(), self.state_data.current_term));
+            self.state_data.acked_length.insert(self.node_id, self.state_data.log.len() as u64);
+
+            for (uuid, _) in &self.nodes {
+                if *uuid != self.node_id {
+                    // REPLICATELOG(nodeId, follower)
+                }
+            }
+        }else {
+            // forward the request to the current leader
+        }
+        ()
+    }
+}
+
+impl Handler<ReplicateLog> for Raft {
+    type Result = ();
+
+    fn handle(&mut self, msg: ReplicateLog, ctx: &mut Context<Self>) -> Self::Result {
+        
         ()
     }
 }
