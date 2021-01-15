@@ -76,12 +76,17 @@ pub struct VoteRequest(Uuid, u64, u64, u64);
 #[rtype(result="()")]
 pub struct VoteResponse(Uuid, u64, bool);
 
+#[derive(Message)]
+#[rtype(result="()")]
+pub struct ReplicateLogAllExcept;
+
 pub struct Raft
 {
     state_data: StateData,
     node_id: Uuid,
     election_handle: Option<SpawnHandle>,
-    nodes: HashMap<Uuid, Addr<Raft>>
+    nodes: HashMap<Uuid, Addr<Raft>>,
+    replicator_handle: Option<SpawnHandle>
 }
 
 impl Raft {
@@ -138,7 +143,7 @@ impl Handler<VoteRequest> for Raft {
     fn handle(&mut self, msg: VoteRequest, ctx: &mut Context<Self>) -> Self::Result {
         let mut my_log_term = 0;
 
-        if self.state_data.log.len() < 0 {
+        if self.state_data.log.len() <= 0 {
             return VoteResponse(self.node_id, self.state_data.current_term, false);
         }else {
             my_log_term = self.state_data.log[self.state_data.log.len() -1].1;
@@ -165,9 +170,20 @@ impl Handler<VoteResponse> for Raft {
     type Result = ();
 
     fn handle(&mut self, msg: VoteResponse, ctx: &mut Context<Self>) -> Self::Result {
+        match self.replicator_handle {
+            Some(handle) => {ctx.cancel_future(handle);},
+            None => {}
+        };
+
         if (self.state_data.current_role == Role::Candidate) && 
             self.state_data.current_term == msg.1 && msg.2 {
             
+
+            self.replicator_handle = Some(
+                ctx.run_interval(Duration::from_secs(1), |_, ctx| {
+                    ctx.address().do_send(ReplicateLogAllExcept);
+                })
+            );
             self.state_data.votes_received.insert(msg.0);
             if self.state_data.votes_received.len() >= ((self.nodes.len() + 1) / 2) {
 
@@ -226,9 +242,20 @@ impl Handler<BroadcastMsg> for Raft {
 
 impl Handler<ReplicateLog> for Raft {
     type Result = ();
-
+    #[inline(always)]
     fn handle(&mut self, msg: ReplicateLog, ctx: &mut Context<Self>) -> Self::Result {
         
+        ()
+    }
+}
+
+impl Handler<ReplicateLogAllExcept> for Raft {
+    type Result = ();
+
+    #[inline(always)]
+    fn handle(&mut self, msg: ReplicateLogAllExcept, ctx: &mut Context<Self>) -> Self::Result {
+
+
         ()
     }
 }
