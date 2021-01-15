@@ -91,6 +91,15 @@ pub struct LogRequest {
     entries: Vec<(Rc<Vec<u8>>, u64)>,
 }
 
+#[derive(Message)]
+#[rtype(result="()")]
+pub struct LogResponse {
+    node_id: Uuid,
+    current_term: u64, 
+    ack: u64, 
+    succes: bool
+}
+
 pub struct Raft
 {
     state_data: StateData,
@@ -101,6 +110,15 @@ pub struct Raft
 }
 
 impl Raft {
+    fn append_entries(&mut self, log_length: u64, leader_commit: u64, entries: Vec<(Rc<Vec<u8>>,u64)>) {
+        if entries.len() > 0 && self.state_data.log.len() > log_length as usize{
+
+        }        
+    }
+
+    fn commit_log_entries(&mut self) {
+
+    }
 }
 
 impl Actor for Raft {
@@ -140,7 +158,7 @@ impl Handler<StateError> for Raft {
         });
 
         // Start a new election timer
-        self.election_handle = Some(ctx.run_later(Duration::from_secs(1), |_, ctx| {
+        self.election_handle = Some(ctx.run_later(Duration::from_secs(1), |act, ctx| {
             ctx.address().do_send(StateError::Timeout);
         }));
         ()
@@ -281,7 +299,36 @@ impl Handler<LogRequest> for Raft {
     type Result = ();
 
     fn handle(&mut self, msg: LogRequest, ctx: &mut Context<Self>) -> Self::Result {
+        
+        if msg.term > self.state_data.current_term {
+            self.state_data.current_term = msg.term;
+            self.state_data.voted_for = None;
+        }
 
+        let mut log_ok = self.state_data.log.len() >= msg.log_length as usize;
+        if msg.log_length as usize + msg.entries.len() > self.state_data.log.len() {
+            log_ok = self.state_data.log.len() > 0 && 
+                (msg.log_term == self.state_data.log[self.state_data.log.len() -1].1);
+        }
+
+        if msg.term == self.state_data.current_term && log_ok {
+            self.state_data.current_role = Role::Follower;
+            self.state_data.current_leader = Some(msg.leader_id);
+            // APPENDENTRIES(log_length, leader_commit, entries)
+
+            // send LogResponse(node_id, current_term, ack, true) to leader_id
+        }else {
+            // send LogResponse(node_id, current_term, 0, false) to leader_id
+        }
+
+        ()
+    }
+}
+
+impl Handler<LogResponse> for Raft {
+    type Result = ();
+
+    fn handle(&mut self, msg: LogResponse, ctx: &mut Context<Self>) -> Self::Result {
 
         ()
     }
