@@ -110,6 +110,12 @@ pub struct Raft
 }
 
 impl Raft {
+
+    pub fn default(node_id: Uuid) -> Raft {
+        let state_data = StateData::default();
+
+        Raft {state_data, node_id, election_handle: None, nodes: HashMap::new(), replicator_handle: None}
+    }
     fn append_entries(&mut self, log_length: u64, leader_commit: u64, entries: Vec<(Rc<Vec<u8>>,u64)>) {
         if entries.len() > 0 && self.state_data.log.len() > log_length as usize{
 

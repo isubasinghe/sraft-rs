@@ -4,6 +4,9 @@ use actix_rt::net::TcpStream;
 use actix_server::Server;
 use actix_service::pipeline_factory;
 use std::time::Duration;
+use uuid::Uuid;
+
+use crate::raft::state;
 
 #[derive(Message)]
 #[rtype(result="()")]
@@ -70,7 +73,7 @@ pub struct TcpServer {
 
 async fn start() {
     let addr = ("127.0.0.1", 8080);
-
+    // let raft = state::Raft::default(Uuid::new())
     Server::build()
         .bind("raft", addr, move || {
             pipeline_factory(move |mut stream: TcpStream| {
