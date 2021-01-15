@@ -80,6 +80,17 @@ pub struct VoteResponse(Uuid, u64, bool);
 #[rtype(result="()")]
 pub struct ReplicateLogAllExcept;
 
+#[derive(Message)]
+#[rtype(result="()")]
+pub struct LogRequest {
+    leader_id: Uuid,
+    term: u64, 
+    log_length: u64,
+    log_term: u64, 
+    leader_commit: u64,
+    entries: Vec<(Rc<Vec<u8>>, u64)>,
+}
+
 pub struct Raft
 {
     state_data: StateData,
@@ -244,7 +255,13 @@ impl Handler<ReplicateLog> for Raft {
     type Result = ();
     #[inline(always)]
     fn handle(&mut self, msg: ReplicateLog, ctx: &mut Context<Self>) -> Self::Result {
-        
+        let i = self.state_data.sent_length.get(&msg.follower_id).unwrap_or(&0);
+        let entries: Vec<(Vec<u8>, u64)> = Vec::new();
+        let mut prev_log_term: u64 = 0;
+        if *i > 0 {
+            prev_log_term = self.state_data.log[(i+1) as usize].1;
+        }
+        // send logrequest to followerid
         ()
     }
 }
@@ -254,6 +271,16 @@ impl Handler<ReplicateLogAllExcept> for Raft {
 
     #[inline(always)]
     fn handle(&mut self, msg: ReplicateLogAllExcept, ctx: &mut Context<Self>) -> Self::Result {
+
+
+        ()
+    }
+}
+
+impl Handler<LogRequest> for Raft {
+    type Result = ();
+
+    fn handle(&mut self, msg: LogRequest, ctx: &mut Context<Self>) -> Self::Result {
 
 
         ()
