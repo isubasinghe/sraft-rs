@@ -59,11 +59,8 @@ pub struct ReplicateLog {
 
 #[derive(Message)]
 #[rtype(result="()")]
-pub struct BroadcastMsg(Msg);
-
-pub struct Msg {
-    data: Rc<Vec<u8>>, 
-    uuid: Uuid
+pub struct BroadcastMsg {
+    data: Rc<Vec<u8>>
 }
 
 #[derive(MessageResponse)]
@@ -260,7 +257,7 @@ impl Handler<BroadcastMsg> for Raft {
 
     fn handle(&mut self, msg: BroadcastMsg, ctx: &mut Context<Self>) -> Self::Result {
         if self.state_data.current_role == Role::Leader {
-            self.state_data.log.push((msg.0.data.clone(), self.state_data.current_term));
+            self.state_data.log.push((msg.data.clone(), self.state_data.current_term));
             self.state_data.acked_length.insert(self.node_id, self.state_data.log.len() as u64);
 
             for (uuid, _) in &self.nodes {
