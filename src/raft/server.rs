@@ -1,14 +1,13 @@
+use std::time::Duration;
+use std::error::Error;
+use std::sync::Arc;
+use uuid::Uuid;
+use futures::SinkExt;
+use tokio_stream::StreamExt;
+use tokio::net::{TcpStream, TcpListener};
+use serde::{Deserialize, Serialize};
 use actix::prelude::*;
 
-use actix_rt::net::{TcpStream};
-use actix_server::Server;
-use actix_service::pipeline_factory;
-use std::time::Duration;
-use uuid::Uuid;
-use std::sync::Arc;
-use serde::{Serialize, Deserialize};
-use bytes::BytesMut;
-use tokio_io::AsyncRead;
 use crate::raft::state;
 
 
@@ -77,34 +76,24 @@ pub struct TcpServer {
 
 }
 
-#[derive(Clone)]
-pub struct Passable {
-    addr: Arc<Addr<state::Raft>>
-}
-
-async fn start() {
-    let addr = ("127.0.0.1", 8080);
-    let raft =  Arc::new(state::Raft::default(Uuid::new_v4()).start());
-    let x = Server::build()
-        .bind("raft", addr, move || {
-            let raft = Arc::clone(&raft);
-            pipeline_factory( move |mut stream: TcpStream| {
-                let raft = Arc::clone(&raft);
-
-                async move {
-                    let tcp_client = TcpClient::new(stream, raft).start();
-
-                    let mut size: u64 = 0;
-                    let mut buf = BytesMut::new();
+async fn start() -> Result<(), Box<dyn Error>>{
+    let listener = TcpListener::bind("127.0.0.1:8080").await?;
+    
+    let raft = Arc::new(state::Raft::default(Uuid::new_v4()).start());
+    loop {
+        match listener.accept().await {
+            Ok((socket, addr)) => {
+                let raft = raft.clone();
+                tokio::spawn(async move {
+                    let client = TcpClient::new(socket, raft).start();
                     
-                    loop {
-                        
-                    }
-                    // send data down service pipeline
-                    let res: Result<(), ()> = Ok(());
+                });
+            }
+            Err(e) => {
 
-                    res
-                }
-            })
-        });
+            }
+        }
+    }
+
+    Ok(())
 }
