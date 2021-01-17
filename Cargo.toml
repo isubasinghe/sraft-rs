@@ -18,4 +18,5 @@ futures = { version = "0.3.12", features = ["thread-pool"]}
 async-stream = "0.3.0"
 tracing = "0.1.22"
 tracing-subscriber = { version = "0.2.15", default-features = false, features = ["fmt", "ansi", "env-filter", "chrono", "tracing-log"] }
-tokio-serde = "0.8.0"
+tokio-serde = {version = "0.8.0", features=["bincode"]}
+tokio-util = {version = "0.6.1", features=["full"]}

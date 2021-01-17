@@ -1,7 +1,22 @@
 use tokio::net::TcpStream;
 use tokio::io::AsyncWriteExt;
 use std::error::Error;
+use serde::{Deserialize, Serialize};
 use actix::prelude::*;
+
+use std::rc::Rc;
+
+#[derive(Deserialize, Serialize)]
+pub struct Data {
+    data: Vec<(Vec<u8>, u64)>
+}
+
+#[derive(Deserialize, Serialize)]
+pub enum Msg {
+    Msg(Data),
+    Ping, 
+    Pong
+}
 
 
 #[derive(Message)]
@@ -43,6 +58,7 @@ impl Handler<NewHost> for ClientManager {
             let stream = TcpStream::connect("").await;
             match stream {
                 Ok(stream) => {
+                    // let length_delimited = FrameWrite
                     let client = Client::new(stream, addr).start();
                     
                 },
