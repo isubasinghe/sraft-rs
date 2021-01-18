@@ -5,6 +5,7 @@ use std::iter::FromIterator;
 use std::time::Duration;
 use serde::{Serialize, Deserialize};
 use std::rc::Rc;
+use std::sync::Arc;
 
 #[derive(Eq, PartialEq)]
 pub enum Role {
@@ -85,7 +86,7 @@ pub struct LogRequest {
     log_length: u64,
     log_term: u64, 
     leader_commit: u64,
-    entries: Vec<(Rc<Vec<u8>>, u64)>,
+    entries: Vec<(Arc<Vec<u8>>, u64)>,
 }
 
 #[derive(Message)]

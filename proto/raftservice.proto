@@ -1,0 +1,44 @@
+syntax = "proto3";
+package raftservice;
+
+service RaftService {
+    rpc DoLogRequest(LogRequest) returns (LogResponse);
+    rpc DoVoteRequest(VoteRequest) returns (VoteResponse);
+}
+
+message UUID {
+    string data = 1;
+}
+message CommitEntry {
+    bytes data = 1;
+    uint64 term = 2;
+}
+
+message LogRequest {
+    UUID leader_id = 1;
+    uint64 term = 2;
+    uint64 log_length = 3;
+    uint64 log_term = 4;
+    uint64 log_commit = 5;
+    repeated CommitEntry entries = 6;
+}
+
+message LogResponse {
+    UUID node_id = 1;
+    uint64 current_term = 2;
+    uint64 ack = 3;
+    bool success = 4;
+}
+
+message VoteRequest {
+    UUID candidate_id = 1;
+    uint64 candidate_term = 2;
+    uint64 candidate_log_length = 3;
+    uint64 candidate_log_term = 4;
+}
+
+message VoteResponse {
+    UUID voter_id = 1;
+    uint64 term = 2;
+    bool granted = 3;
+}
