@@ -79,7 +79,7 @@ pub struct VoteResponse(Uuid, u64, bool);
 pub struct ReplicateLogAllExcept;
 
 #[derive(Message)]
-#[rtype(result="()")]
+#[rtype(result="LogResponse")]
 pub struct LogRequest {
     leader_id: Uuid,
     term: u64, 
@@ -89,13 +89,25 @@ pub struct LogRequest {
     entries: Vec<(Arc<Vec<u8>>, u64)>,
 }
 
+impl LogRequest {
+    pub fn new(leader_id: Uuid, term: u64, log_length: u64, log_term: u64, leader_commit: u64, entries: Vec<(Arc<Vec<u8>>, u64)>)  -> LogRequest {
+        LogRequest{leader_id, term, log_length, log_term, leader_commit, entries}
+    }
+}
+#[derive(MessageResponse)]
 #[derive(Message)]
 #[rtype(result="()")]
 pub struct LogResponse {
-    node_id: Uuid,
-    current_term: u64, 
-    ack: u64, 
-    succes: bool
+    pub node_id: Uuid,
+    pub current_term: u64, 
+    pub ack: u64, 
+    pub success: bool
+}
+
+impl LogResponse {
+    pub fn new(node_id: Uuid, current_term: u64, ack: u64, success: bool) -> LogResponse {
+        LogResponse{node_id, current_term, ack, success}
+    }
 }
 
 pub struct Raft
@@ -104,7 +116,7 @@ pub struct Raft
     node_id: Uuid,
     election_handle: Option<SpawnHandle>,
     nodes: HashMap<Uuid, Addr<Raft>>,
-    replicator_handle: Option<SpawnHandle>
+    replicator_handle: Option<SpawnHandle>,
 }
 
 impl Raft {
@@ -300,7 +312,7 @@ impl Handler<ReplicateLogAllExcept> for Raft {
 }
 
 impl Handler<LogRequest> for Raft {
-    type Result = ();
+    type Result = LogResponse;
 
     fn handle(&mut self, msg: LogRequest, ctx: &mut Context<Self>) -> Self::Result {
         
@@ -319,13 +331,11 @@ impl Handler<LogRequest> for Raft {
             self.state_data.current_role = Role::Follower;
             self.state_data.current_leader = Some(msg.leader_id);
             // APPENDENTRIES(log_length, leader_commit, entries)
-
-            // send LogResponse(node_id, current_term, ack, true) to leader_id
-        }else {
-            // send LogResponse(node_id, current_term, 0, false) to leader_id
+            let ack = (self.state_data.log.len() + msg.entries.len()) as u64;
+            return LogResponse::new(self.node_id, self.state_data.current_term, ack, true);
         }
 
-        ()
+        LogResponse::new(self.node_id, self.state_data.current_term, 0, false)
     }
 }
 
