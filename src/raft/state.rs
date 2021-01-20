@@ -59,6 +59,26 @@ impl Raft {
 
         Raft {state_data, node_id, election_handle: None, nodes: HashMap::new(), replicator_handle: None}
     }
+    fn append_entries(&mut self, log_length: u64, leader_commit: u64, entries: Arc<Vec<u8>>) {
+        if entries.len() > 0 && self.state_data.log.len() > log_length as usize {
+            
+        }
+
+        if log_length as usize + entries.len() > self.state_data.log.len() {
+
+        }
+        if leader_commit > self.state_data.commit_length {
+
+        }
+    }
+    fn commit_log_entries(&mut self) {
+        let min_acks = ((self.nodes.len() + 1)/2) as u64;
+        if true {
+
+
+        }
+
+    }   
 }
 
 impl Actor for Raft {
@@ -165,7 +185,7 @@ impl Handler<VoteResponse> for Raft {
                         self.state_data.sent_length.insert(*uuid, self.state_data.log.len() as u64);
                         self.state_data.acked_length.insert(*uuid, 0);
 
-                        // REPLICATELOG(nodeId, follower)
+                        ctx.address().do_send(ReplicateLog{leader_id: self.node_id, follower_id: *uuid});
                     }
                 }
 
@@ -197,7 +217,7 @@ impl Handler<BroadcastMsg> for Raft {
 
             for (uuid, _) in &self.nodes {
                 if *uuid != self.node_id {
-                    // REPLICATELOG(nodeId, follower)
+                    ctx.address().do_send(ReplicateLog{leader_id: self.node_id, follower_id: *uuid});
                 }
             }
         }else {

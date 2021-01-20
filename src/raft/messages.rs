@@ -74,7 +74,6 @@ impl LogResponse {
 pub enum NodeMsgs {
     VoteRequest(VoteRequest),
     LogRequest(LogRequest),
-    AppMsg(AppMsg)
 }
 
 #[derive(Message, Clone)]
