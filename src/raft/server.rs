@@ -25,6 +25,10 @@ pub struct RaftServiceImpl {
     raft: Arc<Addr<Raft>>,
 }
 
+impl Actor for RaftServiceImpl {
+    type Context = Context<Self>;
+}
+
 #[tonic::async_trait]
 impl RaftService for RaftServiceImpl {
     async fn do_log_request(&self, request: Request<LogRequest_>) -> Result<Response<LogResponse_>, Status> {
@@ -71,7 +75,6 @@ impl RaftService for RaftServiceImpl {
         unimplemented!();
     }
 }
-
 async fn start() -> Result<(), Box<dyn std::error::Error>> {
     let addr = "[::1]:50051".parse()?;
 

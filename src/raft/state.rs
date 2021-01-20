@@ -3,9 +3,9 @@ use uuid::Uuid;
 use std::collections::{HashSet, HashMap};
 use std::iter::FromIterator;
 use std::time::Duration;
-use serde::{Serialize, Deserialize};
 use std::rc::Rc;
-use std::sync::Arc;
+
+use crate::raft::messages::*;
 
 #[derive(Eq, PartialEq)]
 pub enum Role {
@@ -41,72 +41,6 @@ impl Default for StateData
             sent_length: HashMap::new(),
             acked_length: HashMap::new(),
         }
-    }
-}
-
-#[derive(Message)]
-#[rtype(result="()")]
-pub enum StateError {
-    Crash,
-    Timeout
-}
-
-#[derive(Message)]
-#[rtype(result="()")]
-pub struct ReplicateLog {
-    leader_id: Uuid, 
-    follower_id: Uuid
-}
-
-#[derive(Message)]
-#[rtype(result="()")]
-pub struct BroadcastMsg {
-    data: Rc<Vec<u8>>
-}
-
-#[derive(MessageResponse)]
-#[derive(Message)]
-#[rtype(result="VoteResponse")]
-pub struct VoteRequest(Uuid, u64, u64, u64);
-
-#[derive(MessageResponse)]
-#[derive(Message)]
-#[rtype(result="()")]
-pub struct VoteResponse(Uuid, u64, bool);
-
-#[derive(Message)]
-#[rtype(result="()")]
-pub struct ReplicateLogAllExcept;
-
-#[derive(Message)]
-#[rtype(result="LogResponse")]
-pub struct LogRequest {
-    leader_id: Uuid,
-    term: u64, 
-    log_length: u64,
-    log_term: u64, 
-    leader_commit: u64,
-    entries: Vec<(Arc<Vec<u8>>, u64)>,
-}
-
-impl LogRequest {
-    pub fn new(leader_id: Uuid, term: u64, log_length: u64, log_term: u64, leader_commit: u64, entries: Vec<(Arc<Vec<u8>>, u64)>)  -> LogRequest {
-        LogRequest{leader_id, term, log_length, log_term, leader_commit, entries}
-    }
-}
-#[derive(MessageResponse)]
-#[derive(Message)]
-#[rtype(result="()")]
-pub struct LogResponse {
-    pub node_id: Uuid,
-    pub current_term: u64, 
-    pub ack: u64, 
-    pub success: bool
-}
-
-impl LogResponse {
-    pub fn new(node_id: Uuid, current_term: u64, ack: u64, success: bool) -> LogResponse {
-        LogResponse{node_id, current_term, ack, success}
     }
 }
 
@@ -306,7 +240,7 @@ impl Handler<ReplicateLogAllExcept> for Raft {
     #[inline(always)]
     fn handle(&mut self, msg: ReplicateLogAllExcept, ctx: &mut Context<Self>) -> Self::Result {
 
-
+        
         ()
     }
 }
