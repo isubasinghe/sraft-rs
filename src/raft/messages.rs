@@ -1,6 +1,5 @@
 use actix::prelude::*;
 use uuid::Uuid;
-use std::rc::Rc;
 use std::sync::Arc;
 
 
@@ -21,10 +20,10 @@ pub struct ReplicateLog {
 #[derive(Message)]
 #[rtype(result="()")]
 pub struct BroadcastMsg {
-    pub data: Rc<Vec<u8>>
+    pub data: Arc<Vec<u8>>
 }
 
-#[derive(MessageResponse)]
+#[derive(MessageResponse, Clone)]
 #[derive(Message)]
 #[rtype(result="VoteResponse")]
 pub struct VoteRequest(pub Uuid, pub u64, pub u64, pub u64);
@@ -38,7 +37,7 @@ pub struct VoteResponse(pub Uuid, pub u64, pub bool);
 #[rtype(result="()")]
 pub struct ReplicateLogAllExcept;
 
-#[derive(Message)]
+#[derive(Message, Clone)]
 #[rtype(result="LogResponse")]
 pub struct LogRequest {
     pub leader_id: Uuid,
@@ -68,4 +67,19 @@ impl LogResponse {
     pub fn new(node_id: Uuid, current_term: u64, ack: u64, success: bool) -> LogResponse {
         LogResponse{node_id, current_term, ack, success}
     }
+}
+
+#[derive(Message, Clone)]
+#[rtype(result="()")]
+pub enum NodeMsgs {
+    VoteRequest(VoteRequest),
+    LogRequest(LogRequest),
+    AppMsg(AppMsg)
+}
+
+#[derive(Message, Clone)]
+#[rtype(result="()")]
+pub struct AppMsg {
+    data: Vec<u8>,
+    term: u64
 }

@@ -14,7 +14,7 @@ use uuid::Uuid;
 use actix::prelude::*;
 use std::str::FromStr;
 use std::sync::Arc;
-use crate::raft::state::{LogRequest};
+use crate::raft::messages::*;
 use crate::raft::state::Raft;
 
 pub mod raftservice {
