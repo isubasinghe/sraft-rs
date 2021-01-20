@@ -1,9 +1,13 @@
 syntax = "proto3";
+import "google/protobuf/empty.proto";
 package raftservice;
+
 
 service RaftService {
     rpc DoLogRequest(LogRequest) returns (LogResponse);
     rpc DoVoteRequest(VoteRequest) returns (VoteResponse);
+    rpc GetUUID(google.protobuf.Empty) returns (UUID);
+    rpc GetAddrs(google.protobuf.Empty) returns (Addrs);
 }
 
 message UUID {
@@ -41,4 +45,8 @@ message VoteResponse {
     UUID voter_id = 1;
     uint64 term = 2;
     bool granted = 3;
+}
+
+message Addrs {
+    repeated string addrs = 1;
 }
