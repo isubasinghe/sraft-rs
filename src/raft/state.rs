@@ -59,7 +59,7 @@ impl Raft {
 
         Raft {state_data, node_id, election_handle: None, nodes: HashMap::new(), replicator_handle: None}
     }
-    fn append_entries(&mut self, log_length: u64, leader_commit: u64, entries: Arc<Vec<u8>>) {
+    fn append_entries(&mut self, log_length: u64, leader_commit: u64, entries: Vec<(Arc<Vec<u8>>, u64)>) {
         if entries.len() > 0 && self.state_data.log.len() > log_length as usize {
             
         }
@@ -85,18 +85,27 @@ impl Actor for Raft {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Context<Self>) {
-
+        self.election_handle = Some(ctx.run_later(Duration::from_secs(1), |act, ctx| {
+            ctx.address().do_send(Timeout);
+        }));
     }
 
     fn stopped(&mut self, ctx: &mut Context<Self>) {
-
+        self.election_handle.map(|handle| {
+            ctx.cancel_future(handle);
+        });
+        self.election_handle = None;
+        self.replicator_handle.map(|handle| {
+            ctx.cancel_future(handle);
+        });
+        self.replicator_handle = None;
     }
 }
 
-impl Handler<StateError> for Raft {
+impl Handler<Timeout> for Raft {
     type Result = ();
 
-    fn handle(&mut self, _msg: StateError, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, _msg: Timeout, ctx: &mut Context<Self>) -> Self::Result {
         self.state_data.current_term += 1;
         self.state_data.current_role = Role::Candidate;
         self.state_data.voted_for = Some(self.node_id);
@@ -123,7 +132,7 @@ impl Handler<StateError> for Raft {
 
         // Start a new election timer
         self.election_handle = Some(ctx.run_later(Duration::from_secs(1), |act, ctx| {
-            ctx.address().do_send(StateError::Timeout);
+            ctx.address().do_send(Timeout);
         }));
         ()
     }

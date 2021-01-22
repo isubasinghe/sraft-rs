@@ -5,10 +5,11 @@ use std::sync::Arc;
 
 #[derive(Message)]
 #[rtype(result="()")]
-pub enum StateError {
-    Crash,
-    Timeout
-}
+pub struct Timeout;
+
+#[derive(Message)]
+#[rtype(result="()")]
+pub struct Crash;
 
 #[derive(Message)]
 #[rtype(result="()")]
