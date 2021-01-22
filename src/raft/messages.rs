@@ -80,6 +80,5 @@ pub enum NodeMsgs {
 #[derive(Message, Clone)]
 #[rtype(result="()")]
 pub struct AppMsg {
-    data: Vec<u8>,
-    term: u64
+    pub data: Arc<Vec<u8>>
 }

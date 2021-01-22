@@ -50,25 +50,27 @@ pub struct Raft
     election_handle: Option<SpawnHandle>,
     nodes: HashMap<Uuid, Recipient<NodeMsgs>>,
     replicator_handle: Option<SpawnHandle>,
+    app: Recipient<AppMsg>,
 }
 
 impl Raft {
-
-    pub fn default(node_id: Uuid) -> Raft {
-        let state_data = StateData::default();
-
-        Raft {state_data, node_id, election_handle: None, nodes: HashMap::new(), replicator_handle: None}
-    }
     fn append_entries(&mut self, log_length: u64, leader_commit: u64, entries: Vec<(Arc<Vec<u8>>, u64)>) {
         if entries.len() > 0 && self.state_data.log.len() > log_length as usize {
-            
+            if self.state_data.log[log_length as usize].1 != entries[0].1 {
+                self.state_data.log.truncate(log_length as usize -1);
+            }
         }
 
         if log_length as usize + entries.len() > self.state_data.log.len() {
-
+            for i in (self.state_data.log.len() - log_length as usize)..(entries.len() -1) {
+                self.state_data.log.push(entries[i].clone());
+            }
         }
         if leader_commit > self.state_data.commit_length {
-
+            for i in (self.state_data.commit_length)..(leader_commit -1) {
+                self.app.do_send(AppMsg{data: entries[i as usize].0.clone()}).unwrap();
+            }
+            self.state_data.commit_length = leader_commit;
         }
     }
     fn commit_log_entries(&mut self) {
