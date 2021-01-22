@@ -102,6 +102,19 @@ impl Actor for Raft {
     }
 }
 
+impl Handler<Crash> for Raft {
+    type Result = ();
+
+    fn handle(&mut self, _msg: Crash, ctx: &mut Context<Self>) -> Self::Result {
+        self.state_data.current_role = Role::Follower;
+        self.state_data.current_leader = None;
+        self.state_data.votes_received = HashSet::new();
+        self.state_data.sent_length = HashMap::new();
+        self.state_data.acked_length = HashMap::new();
+        ()
+    }
+}
+
 impl Handler<Timeout> for Raft {
     type Result = ();
 
