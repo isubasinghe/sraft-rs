@@ -76,16 +76,16 @@ impl RaftService for RaftServiceImpl {
     }
 }
 async fn start() -> Result<(), Box<dyn std::error::Error>> {
-    let addr = "[::1]:50051".parse()?;
+    // let addr = "[::1]:50051".parse()?;
 
-    let raft = Arc::new(Raft::default(Uuid::new_v4()).start());
-    let greeter = RaftServiceImpl{raft};
+    // let raft = Arc::new(Raft::default(Uuid::new_v4()).start());
+    // let greeter = RaftServiceImpl{raft};
 
 
-    Server::builder()
-        .add_service(RaftServiceServer::new(greeter))
-        .serve(addr)
-        .await?;
+    // Server::builder()
+    //     .add_service(RaftServiceServer::new(greeter))
+    //     .serve(addr)
+    //     .await?;
 
     Ok(())
 }

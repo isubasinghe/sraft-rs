@@ -50,25 +50,27 @@ pub struct Raft
     election_handle: Option<SpawnHandle>,
     nodes: HashMap<Uuid, Recipient<NodeMsgs>>,
     replicator_handle: Option<SpawnHandle>,
+    app: Recipient<AppMsg>,
 }
 
 impl Raft {
-
-    pub fn default(node_id: Uuid) -> Raft {
-        let state_data = StateData::default();
-
-        Raft {state_data, node_id, election_handle: None, nodes: HashMap::new(), replicator_handle: None}
-    }
-    fn append_entries(&mut self, log_length: u64, leader_commit: u64, entries: Arc<Vec<u8>>) {
+    fn append_entries(&mut self, log_length: u64, leader_commit: u64, entries: Vec<(Arc<Vec<u8>>, u64)>) {
         if entries.len() > 0 && self.state_data.log.len() > log_length as usize {
-            
+            if self.state_data.log[log_length as usize].1 != entries[0].1 {
+                self.state_data.log.truncate(log_length as usize -1);
+            }
         }
 
         if log_length as usize + entries.len() > self.state_data.log.len() {
-
+            for i in (self.state_data.log.len() - log_length as usize)..(entries.len() -1) {
+                self.state_data.log.push(entries[i].clone());
+            }
         }
         if leader_commit > self.state_data.commit_length {
-
+            for i in (self.state_data.commit_length)..(leader_commit -1) {
+                self.app.do_send(AppMsg{data: entries[i as usize].0.clone()}).unwrap();
+            }
+            self.state_data.commit_length = leader_commit;
         }
     }
     fn commit_log_entries(&mut self) {
@@ -78,25 +80,53 @@ impl Raft {
 
         }
 
-    }   
+    }
+
+    fn simulate_crash(&mut self, addr: Addr<Raft>) {
+        self.election_handle = None;
+        self.replicator_handle = None;
+        addr.do_send(Crash);
+    }
 }
 
 impl Actor for Raft {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Context<Self>) {
-
+        self.election_handle = Some(ctx.run_later(Duration::from_secs(1), |act, ctx| {
+            ctx.address().do_send(Timeout);
+        }));
     }
 
     fn stopped(&mut self, ctx: &mut Context<Self>) {
-
+        self.election_handle.map(|handle| {
+            ctx.cancel_future(handle);
+        });
+        self.election_handle = None;
+        self.replicator_handle.map(|handle| {
+            ctx.cancel_future(handle);
+        });
+        self.replicator_handle = None;
     }
 }
 
-impl Handler<StateError> for Raft {
+impl Handler<Crash> for Raft {
     type Result = ();
 
-    fn handle(&mut self, _msg: StateError, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, _msg: Crash, ctx: &mut Context<Self>) -> Self::Result {
+        self.state_data.current_role = Role::Follower;
+        self.state_data.current_leader = None;
+        self.state_data.votes_received = HashSet::new();
+        self.state_data.sent_length = HashMap::new();
+        self.state_data.acked_length = HashMap::new();
+        ()
+    }
+}
+
+impl Handler<Timeout> for Raft {
+    type Result = ();
+
+    fn handle(&mut self, _msg: Timeout, ctx: &mut Context<Self>) -> Self::Result {
         self.state_data.current_term += 1;
         self.state_data.current_role = Role::Candidate;
         self.state_data.voted_for = Some(self.node_id);
@@ -123,7 +153,7 @@ impl Handler<StateError> for Raft {
 
         // Start a new election timer
         self.election_handle = Some(ctx.run_later(Duration::from_secs(1), |act, ctx| {
-            ctx.address().do_send(StateError::Timeout);
+            ctx.address().do_send(Timeout);
         }));
         ()
     }
@@ -228,12 +258,16 @@ impl Handler<BroadcastMsg> for Raft {
 
                         },
                         None => {
-                            // this is weird
+                            // this is weird, this isn't a state we are 
+                            // meant to be in, let's simulate a crash 
+                            self.simulate_crash(ctx.address());
                         }
                     };
                 }
                 None => {
-                    // this is also weird
+                    // this is weird, this isn't a state we are 
+                    // meant to be in, let's simulate a crash 
+                    self.simulate_crash(ctx.address());
                 }
             };
         }
@@ -270,7 +304,8 @@ impl Handler<ReplicateLog> for Raft {
                 ).unwrap();
             },  
             None => {
-                // This is weird
+                // This is weird, I guess we are simulating a crash again 
+                self.simulate_crash(ctx.address());
             }
         }
         ()
@@ -306,8 +341,9 @@ impl Handler<LogRequest> for Raft {
         if msg.term == self.state_data.current_term && log_ok {
             self.state_data.current_role = Role::Follower;
             self.state_data.current_leader = Some(msg.leader_id);
-            // APPENDENTRIES(log_length, leader_commit, entries)
-            let ack = (self.state_data.log.len() + msg.entries.len()) as u64;
+            let elen = msg.entries.len();
+            self.append_entries(msg.log_length, msg.leader_commit, msg.entries);
+            let ack = (self.state_data.log.len() + elen) as u64;
             return LogResponse::new(self.node_id, self.state_data.current_term, ack, true);
         }
 
@@ -323,7 +359,7 @@ impl Handler<LogResponse> for Raft {
             if msg.success == true && msg.ack >= *self.state_data.acked_length.get(&msg.node_id).unwrap_or(&0) {
                 self.state_data.sent_length.insert(msg.node_id, msg.ack);
                 self.state_data.acked_length.insert(msg.node_id, msg.ack);
-                // COMMITLOGENTRIES()
+                self.commit_log_entries();
             }else if  *self.state_data.sent_length.get(&msg.node_id).unwrap_or(&0) > 0 {
                 *self.state_data.sent_length.get_mut(&msg.node_id).unwrap() -= 1;
                 ctx.address().do_send(ReplicateLog{leader_id: self.node_id, follower_id: msg.node_id});
