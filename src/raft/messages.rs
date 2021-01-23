@@ -18,7 +18,7 @@ pub struct ReplicateLog {
     pub follower_id: Uuid
 }
 
-#[derive(Message)]
+#[derive(Message, Clone)]
 #[rtype(result="()")]
 pub struct BroadcastMsg {
     pub data: Arc<Vec<u8>>
@@ -75,10 +75,20 @@ impl LogResponse {
 pub enum NodeMsgs {
     VoteRequest(VoteRequest),
     LogRequest(LogRequest),
+    BroadcastMsg(BroadcastMsg)
 }
 
 #[derive(Message, Clone)]
 #[rtype(result="()")]
 pub struct AppMsg {
     pub data: Arc<Vec<u8>>
+}
+
+#[derive(Message, Clone)]
+#[rtype(result="NodesHash")]
+pub struct GetNodesHash;
+
+#[derive(MessageResponse)]
+pub struct NodesHash {
+    pub id: u64
 }

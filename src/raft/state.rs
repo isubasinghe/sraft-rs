@@ -1,9 +1,12 @@
 use actix::prelude::*;
 use uuid::Uuid;
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashSet, HashMap, BTreeMap};
 use std::iter::FromIterator;
 use std::time::Duration;
 use std::sync::Arc;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
 use crate::raft::messages::*;
 
 #[derive(Eq, PartialEq)]
@@ -12,7 +15,6 @@ pub enum Role {
     Candidate,
     Leader
 }
-
 
 struct StateData {
     current_term: u64,
@@ -48,7 +50,7 @@ pub struct Raft
     state_data: StateData,
     node_id: Uuid,
     election_handle: Option<SpawnHandle>,
-    nodes: HashMap<Uuid, Recipient<NodeMsgs>>,
+    nodes: BTreeMap<Uuid, Recipient<NodeMsgs>>,
     replicator_handle: Option<SpawnHandle>,
     app: Recipient<AppMsg>,
 }
@@ -275,7 +277,7 @@ impl Handler<BroadcastMsg> for Raft {
                 Some(node_id) => {
                     match self.nodes.get(&node_id) {
                         Some(addr) => {
-
+                            addr.do_send(NodeMsgs::BroadcastMsg(msg)).unwrap();
                         },
                         None => {
                             // this is weird, this isn't a state we are 
@@ -390,5 +392,16 @@ impl Handler<LogResponse> for Raft {
             self.state_data.voted_for = None;
         }
         ()
+    }
+}
+
+
+impl Handler<GetNodesHash> for Raft {
+    type Result = NodesHash;
+
+    fn handle(&mut self, _: GetNodesHash, _: &mut Context<Self>) -> Self::Result {
+        let mut hasher = DefaultHasher::new();
+        self.nodes.hash(&mut hasher);
+        NodesHash{id: hasher.finish()}
     }
 }
