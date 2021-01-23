@@ -54,6 +54,15 @@ pub struct Raft
 }
 
 impl Raft {
+    fn acks(&mut self, length: usize) -> usize {
+        let mut num = 0;
+        self.state_data.acked_length.iter().for_each(|(_, val)| {
+            if (*val) as usize >= length {
+                num += 1;
+            }
+        });
+        num
+    }
     fn append_entries(&mut self, log_length: u64, leader_commit: u64, entries: Vec<(Arc<Vec<u8>>, u64)>) {
         if entries.len() > 0 && self.state_data.log.len() > log_length as usize {
             if self.state_data.log[log_length as usize].1 != entries[0].1 {
@@ -74,10 +83,21 @@ impl Raft {
         }
     }
     fn commit_log_entries(&mut self) {
-        let min_acks = ((self.nodes.len() + 1)/2) as u64;
-        if true {
+        let min_acks = (self.nodes.len() + 1)/2;
+        let mut max_ready = 0;
+        for len in 1..(self.state_data.log.len()) {
+            if self.acks(len) >= min_acks {
+                max_ready = len;
+            }
+        }
 
+        if max_ready > 0 && max_ready > self.state_data.commit_length as usize
+            && self.state_data.log[max_ready - 1].1 == self.state_data.current_term {
 
+            for i in (self.state_data.commit_length as usize)..(max_ready - 1) {
+                self.app.do_send(AppMsg{data: self.state_data.log[i].0.clone()}).unwrap();
+            }
+            self.state_data.commit_length = max_ready as u64;
         }
 
     }
