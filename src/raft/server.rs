@@ -1,8 +1,12 @@
 
 use tonic::{transport::Server, Request, Response, Status};
-
-use raftservice::raft_service_server::{RaftService, RaftServiceServer};
-use raftservice::{
+use uuid::Uuid;
+use actix::prelude::*;
+use std::sync::Arc;
+use crate::raft::messages::*;
+use crate::raft::state::Raft;
+use crate::raft::raftservice::raft_service_server::{RaftService, RaftServiceServer};
+use crate::raft::raftservice::{
     LogResponse as LogResponse_, 
     LogRequest as LogRequest_, 
     VoteRequest as VoteRequest_, 
@@ -10,16 +14,7 @@ use raftservice::{
     Uuid as Uuid_,
     Addrs
 };
-use uuid::Uuid;
-use actix::prelude::*;
-use std::str::FromStr;
-use std::sync::Arc;
-use crate::raft::messages::*;
-use crate::raft::state::Raft;
-
-pub mod raftservice {
-    tonic::include_proto!("raftservice");
-}
+use crate::raft::transformers::opt_uuid__to_uuid;
 
 pub struct RaftServiceImpl {
     raft: Arc<Addr<Raft>>,
@@ -33,23 +28,15 @@ impl Actor for RaftServiceImpl {
 impl RaftService for RaftServiceImpl {
     async fn do_log_request(&self, request: Request<LogRequest_>) -> Result<Response<LogResponse_>, Status> {
         let x = request.into_inner();
-        let leader_id = match x.leader_id {
-            Some(leader_id) => {
-                Uuid::from_str(&leader_id.data)
-            },
-            None => return Err(Status::invalid_argument(""))
+        let leader_id = match opt_uuid__to_uuid(x.leader_id) {
+            Ok(uuid) => uuid, 
+            Err(e) => return Err(e)
         };
+        let entries: Vec<(Arc<Vec<u8>>, u64)> = x.entries.iter().cloned().map(|e| {
+            (Arc::new(e.data), e.term)
+        }).collect();
 
-        let req = match leader_id {
-            Ok(leader_id) => {
-                let entries: Vec<(Arc<Vec<u8>>, u64)> = x.entries.iter().cloned().map(|e| {
-                    (Arc::new(e.data), e.term)
-                }).collect();
-
-                LogRequest::new(leader_id, x.term, x.log_length, x.log_term, x.log_commit, entries)
-            },
-            Err(e) => return Err(Status::invalid_argument(""))
-        };
+        let req = LogRequest::new(leader_id, x.term, x.log_length, x.log_term, x.log_commit, entries);
         let x = match self.raft.send(req).await {
             Ok(e) => {
                 let uuid_ = Uuid_ {data: e.node_id.to_simple().encode_lower(&mut Uuid::encode_buffer()).to_string()}; 
@@ -61,12 +48,29 @@ impl RaftService for RaftServiceImpl {
     }
 
     async fn do_vote_request(&self, request: Request<VoteRequest_>) -> Result<Response<VoteResponse_>, Status> {
+        let request = request.into_inner();
+        let uuid = match opt_uuid__to_uuid(request.candidate_id) {
+            Ok(uuid) => uuid, 
+            Err(e) => return Err(e)
+        };
+        let vote_request = VoteRequest(
+                                uuid, 
+                                request.candidate_term, 
+                                request.candidate_log_length, 
+                                request.candidate_log_term);
+        let resp = match self.raft.send(vote_request).await {
+            Ok(resp) => resp,
+            Err(_) => return Err(Status::invalid_argument(""))
+        };
         
-        unimplemented!();
+        let uuid = Uuid_ {data: resp.0.to_simple().encode_lower(&mut Uuid::encode_buffer()).to_string()}; 
+        Ok(Response::new(
+            VoteResponse_{voter_id: Some(uuid), term: resp.1, granted: resp.2}
+        ))
     }
 
     async fn get_addrs(&self, request: Request<()>) -> Result<Response<Addrs>, Status> {
-
+        
         unimplemented!();
     }
 

@@ -1,6 +1,10 @@
 pub mod state;
-pub mod raft;
 pub mod messages;
 pub mod server;
-pub mod service;
-pub mod clientman;
+pub mod application;
+pub mod client;
+pub mod transformers;
+
+pub mod raftservice {
+    tonic::include_proto!("raftservice");
+}

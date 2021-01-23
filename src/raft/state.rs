@@ -1,9 +1,12 @@
 use actix::prelude::*;
 use uuid::Uuid;
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashSet, HashMap, BTreeMap};
 use std::iter::FromIterator;
 use std::time::Duration;
 use std::sync::Arc;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
 use crate::raft::messages::*;
 
 #[derive(Eq, PartialEq)]
@@ -12,7 +15,6 @@ pub enum Role {
     Candidate,
     Leader
 }
-
 
 struct StateData {
     current_term: u64,
@@ -48,12 +50,21 @@ pub struct Raft
     state_data: StateData,
     node_id: Uuid,
     election_handle: Option<SpawnHandle>,
-    nodes: HashMap<Uuid, Recipient<NodeMsgs>>,
+    nodes: BTreeMap<Uuid, Recipient<NodeMsgs>>,
     replicator_handle: Option<SpawnHandle>,
     app: Recipient<AppMsg>,
 }
 
 impl Raft {
+    fn acks(&mut self, length: usize) -> usize {
+        let mut num = 0;
+        self.state_data.acked_length.iter().for_each(|(_, val)| {
+            if (*val) as usize >= length {
+                num += 1;
+            }
+        });
+        num
+    }
     fn append_entries(&mut self, log_length: u64, leader_commit: u64, entries: Vec<(Arc<Vec<u8>>, u64)>) {
         if entries.len() > 0 && self.state_data.log.len() > log_length as usize {
             if self.state_data.log[log_length as usize].1 != entries[0].1 {
@@ -74,10 +85,21 @@ impl Raft {
         }
     }
     fn commit_log_entries(&mut self) {
-        let min_acks = ((self.nodes.len() + 1)/2) as u64;
-        if true {
+        let min_acks = (self.nodes.len() + 1)/2;
+        let mut max_ready = 0;
+        for len in 1..(self.state_data.log.len()) {
+            if self.acks(len) >= min_acks {
+                max_ready = len;
+            }
+        }
 
+        if max_ready > 0 && max_ready > self.state_data.commit_length as usize
+            && self.state_data.log[max_ready - 1].1 == self.state_data.current_term {
 
+            for i in (self.state_data.commit_length as usize)..(max_ready - 1) {
+                self.app.do_send(AppMsg{data: self.state_data.log[i].0.clone()}).unwrap();
+            }
+            self.state_data.commit_length = max_ready as u64;
         }
 
     }
@@ -255,7 +277,7 @@ impl Handler<BroadcastMsg> for Raft {
                 Some(node_id) => {
                     match self.nodes.get(&node_id) {
                         Some(addr) => {
-
+                            addr.do_send(NodeMsgs::BroadcastMsg(msg)).unwrap();
                         },
                         None => {
                             // this is weird, this isn't a state we are 
@@ -370,5 +392,16 @@ impl Handler<LogResponse> for Raft {
             self.state_data.voted_for = None;
         }
         ()
+    }
+}
+
+
+impl Handler<GetNodesHash> for Raft {
+    type Result = NodesHash;
+
+    fn handle(&mut self, _: GetNodesHash, _: &mut Context<Self>) -> Self::Result {
+        let mut hasher = DefaultHasher::new();
+        self.nodes.hash(&mut hasher);
+        NodesHash{id: hasher.finish()}
     }
 }
