@@ -12,7 +12,8 @@ use crate::raft::raftservice::{
     VoteRequest as VoteRequest_, 
     VoteResponse as VoteResponse_,
     Uuid as Uuid_,
-    Addrs
+    Addrs,
+    BroadCastMsgData
 };
 use crate::raft::transformers::opt_uuid__to_uuid;
 
@@ -67,6 +68,13 @@ impl RaftService for RaftServiceImpl {
         Ok(Response::new(
             VoteResponse_{voter_id: Some(uuid), term: resp.1, granted: resp.2}
         ))
+    }
+
+    async fn broad_cast_msg(&self, request: Request<BroadCastMsgData>) -> Result<Response<()>, Status> {
+        let data = Arc::new(request.into_inner().data);
+        let msg: BroadcastMsg = BroadcastMsg{data};
+        self.raft.do_send(msg);
+        Ok(Response::new(()))
     }
 
     async fn get_addrs(&self, request: Request<()>) -> Result<Response<Addrs>, Status> {

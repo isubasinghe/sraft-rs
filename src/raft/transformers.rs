@@ -10,6 +10,7 @@ use crate::raft::raftservice::{
     VoteRequest as VoteRequest_, 
     VoteResponse as VoteResponse_,
     Uuid as Uuid_,
+    CommitEntry,
     Addrs
 };
 
@@ -24,7 +25,7 @@ pub fn opt_uuid__to_uuid(uuid: Option<Uuid_>) -> Result<Uuid, Status> {
     }
 }
 
-fn lreq_to_lreq_(req: LogRequest_) -> Result<LogRequest, ()> {
+pub fn lreq__to_lreq(req: LogRequest_) -> Result<LogRequest, ()> {
     let leader_id = match req.leader_id {
         Some(leader_id) => {
             Uuid::from_str(&leader_id.data)
@@ -44,4 +45,20 @@ fn lreq_to_lreq_(req: LogRequest_) -> Result<LogRequest, ()> {
     };
 
     Ok(req)
+}
+
+pub fn lreq_to_lreq_(req: LogRequest)  -> LogRequest_ {
+    let uuid_ = Uuid_ {data: req.leader_id.to_simple().encode_lower(&mut Uuid::encode_buffer()).to_string()};
+    let entries: Vec<CommitEntry> = req.entries.iter().cloned().map(|e| {
+        let data = (*e.0).clone();
+        CommitEntry{data, term: e.1}
+    }).collect();
+
+    LogRequest_{
+        leader_id: Some(uuid_), 
+        term: req.term, 
+        log_length: req.log_length,
+        log_term: req.log_term, 
+        log_commit: req.leader_commit, 
+        entries }
 }

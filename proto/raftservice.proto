@@ -8,6 +8,7 @@ service RaftService {
     rpc DoVoteRequest(VoteRequest) returns (VoteResponse);
     rpc GetUUID(google.protobuf.Empty) returns (UUID);
     rpc GetAddrs(google.protobuf.Empty) returns (Addrs);
+    rpc BroadCastMsg(BroadCastMsgData) returns (google.protobuf.Empty);
 }
 
 message UUID {
@@ -49,4 +50,8 @@ message VoteResponse {
 
 message Addrs {
     repeated string addrs = 1;
+}
+
+message BroadCastMsgData {
+    bytes data = 1;
 }
