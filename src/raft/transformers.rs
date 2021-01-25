@@ -25,26 +25,24 @@ pub fn opt_uuid__to_uuid(uuid: Option<Uuid_>) -> Result<Uuid, Status> {
     }
 }
 
-pub fn lreq__to_lreq(req: LogRequest_) -> Result<LogRequest, ()> {
-    let leader_id = match req.leader_id {
-        Some(leader_id) => {
-            Uuid::from_str(&leader_id.data)
-        },
-        None => return Err(())
+pub fn uuid_to_uuid_(uuid: Uuid) -> Uuid_ {
+    Uuid_ {data: uuid.to_simple().encode_lower(&mut Uuid::encode_buffer()).to_string()}
+}
+
+pub fn log_resp_to_log_resp_(resp: LogResponse) -> LogResponse_ {
+    LogResponse_{ 
+                node_id: Some(uuid_to_uuid_(resp.node_id)), 
+                current_term: resp.current_term,
+                ack: resp.ack,
+                success: resp.success }
+}
+
+pub fn log_resp__to_log_resp(resp: LogResponse_) -> Result<(LogResponse), ()> {
+    let uuid = match opt_uuid__to_uuid(resp.node_id) {
+        Ok(uuid) => uuid,
+        Err(_) => return Err(())
     };
-
-    let req = match leader_id {
-        Ok(leader_id) => {
-            let entries: Vec<(Arc<Vec<u8>>, u64)> = req.entries.iter().cloned().map(|e| {
-                (Arc::new(e.data), e.term)
-            }).collect();
-
-            LogRequest::new(leader_id, req.term, req.log_length, req.log_term, req.log_commit, entries)
-        },
-        Err(e) => return Err(())
-    };
-
-    Ok(req)
+    Ok(LogResponse::new(uuid, resp.current_term, resp.ack, resp.success))
 }
 
 pub fn lreq_to_lreq_(req: LogRequest)  -> LogRequest_ {
@@ -61,4 +59,18 @@ pub fn lreq_to_lreq_(req: LogRequest)  -> LogRequest_ {
         log_term: req.log_term, 
         log_commit: req.leader_commit, 
         entries }
+}
+
+pub fn vote_req_to_vote_req_(vr: VoteRequest) -> VoteRequest_ {
+    let uuid = uuid_to_uuid_(vr.0);
+    VoteRequest_{candidate_id: Some(uuid), candidate_term: vr.1, candidate_log_length: vr.2, candidate_log_term: vr.3}
+}
+
+pub fn vote_resp__to_vote_resp(vr: VoteResponse_) -> Result<VoteResponse, ()> {
+    let uuid = match opt_uuid__to_uuid(vr.voter_id) {
+        Ok(uuid) => uuid, 
+        Err(_) => return Err(())
+    };
+
+    Ok(VoteResponse(uuid, vr.term, vr.granted))
 }
