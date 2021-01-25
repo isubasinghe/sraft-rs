@@ -7,7 +7,6 @@ use crate::raft::transformers::*;
 use crate::raft::raftservice::raft_service_client::RaftServiceClient;
 use crate::raft::raftservice::{
     BroadCastMsgData,
-    Uuid as Uuid_
 };
 
 pub struct Client{
@@ -64,7 +63,7 @@ impl Actor for Client {
 impl Handler<NodeMsgs> for Client {
     type Result = ();
 
-    fn handle(&mut self, msg: NodeMsgs, ctx: &mut Context<Self>) {
+    fn handle(&mut self, msg: NodeMsgs, _: &mut Context<Self>) {
         match msg {
             NodeMsgs::BroadcastMsg(msg) => {
                 let msg = BroadCastMsgData{data: (*msg.data).clone()};
