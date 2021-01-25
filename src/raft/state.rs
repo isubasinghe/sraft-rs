@@ -49,7 +49,7 @@ pub struct Raft
 {
     state_data: StateData,
     node_id: Uuid,
-    election_handle: Option<SpawnHandle>,
+    timer_handle: Option<SpawnHandle>,
     nodes: BTreeMap<Uuid, Recipient<NodeMsgs>>,
     replicator_handle: Option<SpawnHandle>,
     app: Recipient<AppMsg>,
@@ -105,9 +105,18 @@ impl Raft {
     }
 
     fn simulate_crash(&mut self, addr: Addr<Raft>) {
-        self.election_handle = None;
-        self.replicator_handle = None;
         addr.do_send(Crash);
+    }
+
+    fn reset_timers(&mut self, ctx: &mut Context<Self>) {
+        self.timer_handle.map(|handle| {
+            ctx.cancel_future(handle);
+        });
+        self.replicator_handle.map(|handle| {
+            ctx.cancel_future(handle);
+        });
+        self.timer_handle = None;
+        self.replicator_handle = None;
     }
 }
 
@@ -115,16 +124,16 @@ impl Actor for Raft {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Context<Self>) {
-        self.election_handle = Some(ctx.run_later(Duration::from_secs(1), |act, ctx| {
+        self.timer_handle = Some(ctx.run_later(Duration::from_secs(1), |act, ctx| {
             ctx.address().do_send(Timeout);
         }));
     }
 
     fn stopped(&mut self, ctx: &mut Context<Self>) {
-        self.election_handle.map(|handle| {
+        self.timer_handle.map(|handle| {
             ctx.cancel_future(handle);
         });
-        self.election_handle = None;
+        self.timer_handle = None;
         self.replicator_handle.map(|handle| {
             ctx.cancel_future(handle);
         });
@@ -169,12 +178,12 @@ impl Handler<Timeout> for Raft {
             v.do_send(msg.clone()).unwrap();
         }
         // Cancel the old election timer
-        self.election_handle.map(|x| {
+        self.timer_handle.map(|x| {
             ctx.cancel_future(x);
         });
 
         // Start a new election timer
-        self.election_handle = Some(ctx.run_later(Duration::from_secs(1), |act, ctx| {
+        self.timer_handle = Some(ctx.run_later(Duration::from_secs(1), |act, ctx| {
             ctx.address().do_send(Timeout);
         }));
         ()
@@ -226,11 +235,11 @@ impl Handler<VoteResponse> for Raft {
                 self.state_data.current_role = Role::Leader;
                 self.state_data.current_leader = Some(self.node_id);
                 
-                match self.election_handle {
+                match self.timer_handle {
                     Some(handle) => {ctx.cancel_future(handle);}
                     None => {}
                 }
-                self.election_handle = None;
+                self.timer_handle = None;
 
                 for (uuid, _) in &self.nodes {
                     if *uuid != self.node_id {
@@ -249,11 +258,11 @@ impl Handler<VoteResponse> for Raft {
             self.state_data.current_term = msg.1;
             self.state_data.current_role = Role::Follower;
             self.state_data.voted_for = None;
-            match self.election_handle {
+            match self.timer_handle {
                 Some(handle) => {ctx.cancel_future(handle);}
                 None => {}
             }
-            self.election_handle = None;
+            self.timer_handle = None;
         }
         ()
     }
@@ -280,15 +289,15 @@ impl Handler<BroadcastMsg> for Raft {
                             addr.do_send(NodeMsgs::BroadcastMsg(msg)).unwrap();
                         },
                         None => {
-                            // this is weird, this isn't a state we are 
-                            // meant to be in, let's simulate a crash 
+                            self.reset_timers(ctx);
                             self.simulate_crash(ctx.address());
                         }
                     };
                 }
                 None => {
                     // this is weird, this isn't a state we are 
-                    // meant to be in, let's simulate a crash 
+                    // meant to be in, let's simulate a crash
+                    self.reset_timers(ctx); 
                     self.simulate_crash(ctx.address());
                 }
             };
@@ -326,7 +335,8 @@ impl Handler<ReplicateLog> for Raft {
                 ).unwrap();
             },  
             None => {
-                // This is weird, I guess we are simulating a crash again 
+                // This is weird, I guess we are simulating a crash again
+                self.reset_timers(ctx); 
                 self.simulate_crash(ctx.address());
             }
         }
