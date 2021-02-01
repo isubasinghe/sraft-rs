@@ -1,6 +1,7 @@
 use actix::prelude::*;
 use futures::executor::block_on;
-use tokio::time::{sleep, Duration};
+use std::time::Duration;
+use tracing::{info, warn, error};
 use crate::raft::state::Raft;
 use crate::raft::messages::*;
 use crate::raft::transformers::*;
@@ -11,53 +12,43 @@ use crate::raft::raftservice::{
 
 pub struct Client{
     addr: String,
-    client: RaftServiceClient<tonic::transport::Channel>,
+    client: Option<RaftServiceClient<tonic::transport::Channel>>,
     raft: Addr<Raft>
 }
 
 impl Client {
     pub fn new(addr: String, raft: Addr<Raft>) -> Client {
-        let addr = addr.to_owned();
-        let addr1 = addr.to_owned();
-        let fut = async move {
-            loop {
-                match RaftServiceClient::connect(addr.clone()).await {
-                    Ok(client) => {
-                        return client;
-                    },
-                    Err(e) => {
-                        sleep(Duration::from_secs(10)).await;
-                    }
-                }
-
-            }
-        };
-        let client = block_on(fut);
-
-        Client{addr: addr1, client, raft}
-    }
-
-    pub async fn async_new(addr: String, raft: Addr<Raft>) -> Client {
-        let addr = addr.to_owned();
-        let addr1 = addr.to_owned();
-        let client = loop {
-            match RaftServiceClient::connect(addr.clone()).await {
-                Ok(client) => {
-                    break client;
-                },
-                Err(e) => {
-                    sleep(Duration::from_secs(10)).await;
-                }
-            };
-        };
-
-        Client{addr: addr1, client, raft}
-        
+        Client{addr, client: None, raft}
     }
 }
 
 impl Actor for Client {
     type Context = Context<Self>;
+
+    fn started(&mut self, ctx: &mut Context<Self>) {
+        let addr = self.addr.clone();
+        let raft = self.raft.clone();
+        let fut = async move {
+            loop {
+                info!("CLIENT: Attempting connect");
+                match RaftServiceClient::connect(addr.clone()).await {
+                    Ok(mut client) => {
+                        info!("CLIENT: ESTABLISHED CONNECTION");
+                        let uuid = client.get_uuid(()).await.unwrap();
+                        let uuid = uuid__to_uuid(uuid.into_inner()).unwrap();
+                        raft.do_send(NotifyUUID{node_id: uuid, addr: ctx.address().recipient()});
+                        return client;
+                    },
+                    Err(e) => {
+                        error!("CLIENT: COULD NOT ESTABLISH CONNECTION err:{0}", e);
+                    }
+                }
+                warn!("CLIENT: SLEEPING FOR 10 seconds");
+                actix::clock::sleep(Duration::from_secs(10)).await;
+            }
+        };
+        self.client = Some(block_on(fut));
+    }
 }
 
 impl Handler<NodeMsgs> for Client {
@@ -67,8 +58,9 @@ impl Handler<NodeMsgs> for Client {
         match msg {
             NodeMsgs::BroadcastMsg(msg) => {
                 let msg = BroadCastMsgData{data: (*msg.data).clone()};
+                let client = self.client.clone();
                 let fut = async move {
-                    self.client.broad_cast_msg(msg).await
+                    client.unwrap().broad_cast_msg(msg).await
                 };
 
                 let _ = block_on(fut);
@@ -77,8 +69,9 @@ impl Handler<NodeMsgs> for Client {
 
                 let msg = lreq_to_lreq_(msg);
                 let raft = self.raft.clone();
+                let client = self.client.clone();
                 let fut = async move {
-                    self.client.do_log_request(msg).await
+                    client.unwrap().do_log_request(msg).await
                 };
 
                 let res = match block_on(fut) {
@@ -94,8 +87,9 @@ impl Handler<NodeMsgs> for Client {
             NodeMsgs::VoteRequest(msg) => {
                 let msg = vote_req_to_vote_req_(msg);
                 let raft = self.raft.clone();
+                let client = self.client.clone();
                 let fut = async move {
-                    self.client.do_vote_request(msg).await
+                    client.unwrap().do_vote_request(msg).await
                 };
                 let res = match block_on(fut) {
                     Ok(res) => res.into_inner(),
