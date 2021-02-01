@@ -92,3 +92,10 @@ pub struct GetNodesHash;
 pub struct NodesHash {
     pub id: u64
 }
+
+#[derive(Message)]
+#[rtype(result="")]
+pub struct NotifyUUID {
+    pub node_id: Uuid, 
+    pub addr: Recipient<NodeMsgs>
+}

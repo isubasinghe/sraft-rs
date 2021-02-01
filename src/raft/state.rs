@@ -6,6 +6,7 @@ use std::time::Duration;
 use std::sync::Arc;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use tracing::{info, span};
 
 use crate::raft::messages::*;
 
@@ -16,7 +17,7 @@ pub enum Role {
     Leader
 }
 
-struct StateData {
+pub struct StateData {
     current_term: u64,
     voted_for: Option<Uuid>,
     log: Vec<(Arc<Vec<u8>>, u64)>,
@@ -47,12 +48,12 @@ impl Default for StateData
 
 pub struct Raft
 {
-    state_data: StateData,
-    node_id: Uuid,
-    timer_handle: Option<SpawnHandle>,
-    nodes: BTreeMap<Uuid, Recipient<NodeMsgs>>,
-    replicator_handle: Option<SpawnHandle>,
-    app: Recipient<AppMsg>,
+    pub state_data: StateData,
+    pub node_id: Uuid,
+    pub timer_handle: Option<SpawnHandle>,
+    pub nodes: BTreeMap<Uuid, Recipient<NodeMsgs>>,
+    pub replicator_handle: Option<SpawnHandle>,
+    pub app: Recipient<AppMsg>,
 }
 
 impl Raft {
@@ -124,18 +125,24 @@ impl Actor for Raft {
     type Context = Context<Self>;
 
     fn started(&mut self, ctx: &mut Context<Self>) {
+        info!("RAFT: Raft started");
         self.timer_handle = Some(ctx.run_later(Duration::from_secs(1), |act, ctx| {
+            info!("RAFT: Sending timeout");
             ctx.address().do_send(Timeout);
         }));
+        info!("RAFT: Timer started");
     }
 
     fn stopped(&mut self, ctx: &mut Context<Self>) {
+        info!("RAFT: Stopping raft");
         self.timer_handle.map(|handle| {
             ctx.cancel_future(handle);
+            info!("RAFT: Cancelled timer handle");
         });
         self.timer_handle = None;
         self.replicator_handle.map(|handle| {
             ctx.cancel_future(handle);
+            info!("RAFT: Cancelled replicator handle");
         });
         self.replicator_handle = None;
     }
@@ -145,6 +152,7 @@ impl Handler<Crash> for Raft {
     type Result = ();
 
     fn handle(&mut self, _msg: Crash, ctx: &mut Context<Self>) -> Self::Result {
+        info!("RAFT: Handling crash");
         self.state_data.current_role = Role::Follower;
         self.state_data.current_leader = None;
         self.state_data.votes_received = HashSet::new();
@@ -158,6 +166,7 @@ impl Handler<Timeout> for Raft {
     type Result = ();
 
     fn handle(&mut self, _msg: Timeout, ctx: &mut Context<Self>) -> Self::Result {
+        info!("RAFT: Handling timeout");
         self.state_data.current_term += 1;
         self.state_data.current_role = Role::Candidate;
         self.state_data.voted_for = Some(self.node_id);
@@ -413,5 +422,14 @@ impl Handler<GetNodesHash> for Raft {
         let mut hasher = DefaultHasher::new();
         self.nodes.hash(&mut hasher);
         NodesHash{id: hasher.finish()}
+    }
+}
+
+impl Handler<NotifyUUID> for Raft {
+    type Result = ();
+
+    fn handle(&mut self, msg: NotifyUUID, ctx: &mut Context<Self>) -> Self::Result {
+        self.nodes.insert(msg.node_id, msg.addr);
+        ()
     }
 }

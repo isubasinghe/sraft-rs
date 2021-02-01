@@ -3,8 +3,12 @@ use tonic::{transport::Server, Request, Response, Status};
 use uuid::Uuid;
 use actix::prelude::*;
 use std::sync::Arc;
+use tracing::{info};
+use std::collections::{BTreeMap};
+use tokio::runtime::Runtime;
+use crate::raft::client::*;
 use crate::raft::messages::*;
-use crate::raft::state::Raft;
+use crate::raft::state::{Raft, StateData};
 use crate::raft::raftservice::raft_service_server::{RaftService, RaftServiceServer};
 use crate::raft::raftservice::{
     LogResponse as LogResponse_, 
@@ -15,10 +19,12 @@ use crate::raft::raftservice::{
     Addrs,
     BroadCastMsgData
 };
-use crate::raft::transformers::opt_uuid__to_uuid;
+use crate::raft::transformers::*;
+use crate::raft::application::*;
 
 pub struct RaftServiceImpl {
     raft: Arc<Addr<Raft>>,
+    uuid: Uuid_,
 }
 
 impl Actor for RaftServiceImpl {
@@ -83,21 +89,61 @@ impl RaftService for RaftServiceImpl {
     }
 
     async fn get_uuid(&self, request: Request<()>) -> Result<Response<Uuid_>, Status> {
-
-        unimplemented!();
+        Ok(Response::new(self.uuid.clone()))
     }
 }
-async fn start() -> Result<(), Box<dyn std::error::Error>> {
-    // let addr = "[::1]:50051".parse()?;
 
-    // let raft = Arc::new(Raft::default(Uuid::new_v4()).start());
-    // let greeter = RaftServiceImpl{raft};
+pub struct ExecutionContext {
 
+}
 
-    // Server::builder()
-    //     .add_service(RaftServiceServer::new(greeter))
-    //     .serve(addr)
-    //     .await?;
+pub fn start(addr: String, addrs: Vec<String>, id: u128) -> Result<i32, Box<dyn std::error::Error>> {
+    info!("SERVER: Starting server");
 
-    Ok(())
+    let system = actix::System::new("test");
+    
+    let addr_server = addr.parse()?;
+    let mut app = None;
+
+    let uuid = uuid_to_uuid_(Uuid::from_u128(id));
+    
+    let raft = system.block_on(async move {
+        let raft = Raft::create(|ctx| {
+            let raft = ctx.address();
+            let app_ = Application::new(raft.clone().recipient()).start();
+            app = Some(app_.clone());
+            for i in 0..(addrs.len()) {
+                Client::new(addrs[i].clone(), raft.clone()).start();
+            }
+            let state_data = StateData::default();
+            Raft{
+                state_data,
+                node_id: Uuid::from_u128(id), 
+                timer_handle: None,
+                nodes: BTreeMap::new(),
+                replicator_handle: None,
+                app: app_.recipient()
+    
+            }
+        });
+        raft
+    });
+    let greeter = RaftServiceImpl{raft: Arc::new(raft), uuid};
+
+    println!("RUNNING");
+    let rt = Runtime::new().unwrap();
+
+    rt.spawn(async move {
+        // tonic server
+        let _ = Server::builder()
+                .add_service(RaftServiceServer::new(greeter))
+                .serve(addr_server)
+                .await;
+    });
+
+    info!("SERVER: Started server");
+    
+    system.run();
+
+    Ok(1)
 }

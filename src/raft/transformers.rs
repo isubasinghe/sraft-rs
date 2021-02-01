@@ -25,6 +25,15 @@ pub fn opt_uuid__to_uuid(uuid: Option<Uuid_>) -> Result<Uuid, Status> {
     }
 }
 
+pub fn uuid__to_uuid(uuid: Uuid_) -> Result<Uuid, ()> {
+    let uuid =  Uuid::from_str(&uuid.data);
+
+    match uuid {
+        Ok(uuid) => Ok(uuid),
+        Err(_) => Err(())
+    }
+}
+
 pub fn uuid_to_uuid_(uuid: Uuid) -> Uuid_ {
     Uuid_ {data: uuid.to_simple().encode_lower(&mut Uuid::encode_buffer()).to_string()}
 }
