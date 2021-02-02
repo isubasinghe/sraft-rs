@@ -100,7 +100,7 @@ pub struct ExecutionContext {
 pub fn start(addr: String, addrs: Vec<String>, id: u128) -> Result<i32, Box<dyn std::error::Error>> {
     info!("SERVER: Starting server");
 
-    let system = actix::System::new("test");
+    let mut system = actix::System::new("test");
     
     let addr_server = addr.parse()?;
     let mut app = None;

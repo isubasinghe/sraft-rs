@@ -44,7 +44,7 @@ impl Actor for Client {
                     }
                 }
                 warn!("CLIENT: SLEEPING FOR 10 seconds");
-                actix::clock::sleep(Duration::from_secs(10)).await;
+                actix::clock::delay_for(Duration::from_secs(10)).await;
             }
         };
         self.client = Some(block_on(fut));
