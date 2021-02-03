@@ -257,7 +257,9 @@ impl Handler<VoteResponse> for Raft {
                     Some(handle) => {ctx.cancel_future(handle);}
                     None => {}
                 }
-                self.timer_handle = None;
+                self.timer_handle = Some(ctx.run_interval(Duration::from_secs(5), |act, ctx| {
+                    ctx.address().do_send(ReplicateLogAllExcept);
+                }));
 
                 for (uuid, _) in &self.nodes {
                     if *uuid != self.node_id {
@@ -372,7 +374,17 @@ impl Handler<ReplicateLogAllExcept> for Raft {
     type Result = ();
 
     #[inline(always)]
-    fn handle(&mut self, msg: ReplicateLogAllExcept, ctx: &mut Context<Self>) -> Self::Result {
+    fn handle(&mut self, _: ReplicateLogAllExcept, ctx: &mut Context<Self>) -> Self::Result {
+        info!("RAFT: SENDING REPLICATELOG TO ALL");
+
+        if self.state_data.current_role == Role::Leader {
+            for (uuid, _) in &self.nodes {
+                if *uuid != self.node_id {
+                    info!("RAFT: ISSUING REPLICATELOG");
+                    ctx.address().do_send(ReplicateLog{leader_id: self.node_id, follower_id: *uuid});
+                }
+            }
+        }
 
         ()
     }
