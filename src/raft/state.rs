@@ -67,6 +67,7 @@ impl Raft {
         num
     }
     fn append_entries(&mut self, log_length: u64, leader_commit: u64, entries: Vec<(Arc<Vec<u8>>, u64)>) {
+        info!("RAFT: APPENDING ENTRIES");
         if entries.len() > 0 && self.state_data.log.len() > log_length as usize {
             if self.state_data.log[log_length as usize].1 != entries[0].1 {
                 self.state_data.log.truncate(log_length as usize -1);
@@ -80,12 +81,14 @@ impl Raft {
         }
         if leader_commit > self.state_data.commit_length {
             for i in (self.state_data.commit_length)..(leader_commit -1) {
+                info!("RAFT: SENDING ENTRY TO APPLICATION LAYER");
                 self.app.do_send(AppMsg{data: entries[i as usize].0.clone()}).unwrap();
             }
             self.state_data.commit_length = leader_commit;
         }
     }
     fn commit_log_entries(&mut self) {
+        info!("RAFT: COMMITING LOG ENTRIES");
         let min_acks = (self.nodes.len() + 1)/2;
         let mut max_ready = 0;
         for len in 1..(self.state_data.log.len()) {
@@ -98,6 +101,7 @@ impl Raft {
             && self.state_data.log[max_ready - 1].1 == self.state_data.current_term {
 
             for i in (self.state_data.commit_length as usize)..(max_ready - 1) {
+                info!("RAFT: SENDING ENTRY TO APPLICATION LAYER");
                 self.app.do_send(AppMsg{data: self.state_data.log[i].0.clone()}).unwrap();
             }
             self.state_data.commit_length = max_ready as u64;
@@ -106,10 +110,12 @@ impl Raft {
     }
 
     fn simulate_crash(&mut self, addr: Addr<Raft>) {
+        info!("RAFT: SIMULATING CRASH");
         addr.do_send(Crash);
     }
 
     fn reset_timers(&mut self, ctx: &mut Context<Self>) {
+        info!("RAFT: RESETTING TIMERS");
         self.timer_handle.map(|handle| {
             ctx.cancel_future(handle);
         });
@@ -193,6 +199,7 @@ impl Handler<Timeout> for Raft {
 
         // Start a new election timer
         self.timer_handle = Some(ctx.run_later(Duration::from_secs(1), |act, ctx| {
+            info!("RAFT SENDING TIMEOUT");
             ctx.address().do_send(Timeout);
         }));
         ()
@@ -204,7 +211,7 @@ impl Handler<VoteRequest> for Raft {
     type Result = VoteResponse;
 
     fn handle(&mut self, msg: VoteRequest, ctx: &mut Context<Self>) -> Self::Result {
-
+        info!("RAFT: RECEIVED VOTEREQUEST");
         let mut my_log_term = 0;
         
         if self.state_data.log.len() > 0 {
@@ -220,6 +227,7 @@ impl Handler<VoteRequest> for Raft {
             self.state_data.current_term = msg.1;
             self.state_data.current_role = Role::Follower;
             self.state_data.voted_for = Some(msg.0);
+            info!("RAFT: I AM FOLLOWER");
             return VoteResponse(self.node_id, self.state_data.current_term, true);
         }
         VoteResponse(self.node_id, self.state_data.current_term, false)
@@ -230,6 +238,7 @@ impl Handler<VoteResponse> for Raft {
     type Result = ();
 
     fn handle(&mut self, msg: VoteResponse, ctx: &mut Context<Self>) -> Self::Result {
+        info!("RAFT: RECEIVED VOTERESPONSE");
         match self.replicator_handle {
             Some(handle) => {ctx.cancel_future(handle);},
             None => {}
@@ -240,7 +249,7 @@ impl Handler<VoteResponse> for Raft {
             
             self.state_data.votes_received.insert(msg.0);
             if self.state_data.votes_received.len() >= ((self.nodes.len() + 1) / 2) {
-
+                info!("RAFT: I AM LEADER");
                 self.state_data.current_role = Role::Leader;
                 self.state_data.current_leader = Some(self.node_id);
                 
@@ -254,7 +263,7 @@ impl Handler<VoteResponse> for Raft {
                     if *uuid != self.node_id {
                         self.state_data.sent_length.insert(*uuid, self.state_data.log.len() as u64);
                         self.state_data.acked_length.insert(*uuid, 0);
-
+                        info!("RAFT: ISSUING REPLICATELOG");
                         ctx.address().do_send(ReplicateLog{leader_id: self.node_id, follower_id: *uuid});
                     }
                 }
@@ -265,6 +274,7 @@ impl Handler<VoteResponse> for Raft {
 
         }else if msg.1 > self.state_data.current_term {
             self.state_data.current_term = msg.1;
+            info!("RAFT: I AM FOLLOWER");
             self.state_data.current_role = Role::Follower;
             self.state_data.voted_for = None;
             match self.timer_handle {
@@ -281,12 +291,14 @@ impl Handler<BroadcastMsg> for Raft {
     type Result = ();
 
     fn handle(&mut self, msg: BroadcastMsg, ctx: &mut Context<Self>) -> Self::Result {
+        info!("RAFT: HANDLING TOTAL ORDER BROADCAST");
         if self.state_data.current_role == Role::Leader {
             self.state_data.log.push((msg.data.clone(), self.state_data.current_term));
             self.state_data.acked_length.insert(self.node_id, self.state_data.log.len() as u64);
 
             for (uuid, _) in &self.nodes {
                 if *uuid != self.node_id {
+                    info!("RAFT: ISSUING REPLICATELOG");
                     ctx.address().do_send(ReplicateLog{leader_id: self.node_id, follower_id: *uuid});
                 }
             }
@@ -295,6 +307,7 @@ impl Handler<BroadcastMsg> for Raft {
                 Some(node_id) => {
                     match self.nodes.get(&node_id) {
                         Some(addr) => {
+                            info!("RAFT: SENDING TOTAL ORDER BROADCAST TO LEADER");
                             addr.do_send(NodeMsgs::BroadcastMsg(msg)).unwrap();
                         },
                         None => {
@@ -319,6 +332,7 @@ impl Handler<ReplicateLog> for Raft {
     type Result = ();
     #[inline(always)]
     fn handle(&mut self, msg: ReplicateLog, ctx: &mut Context<Self>) -> Self::Result {
+        info!("RAFT: RECEIVED REPLICATELOG");
         let i = *self.state_data.sent_length.get(&msg.follower_id).unwrap_or(&0);
         let mut entries: Vec<(Arc<Vec<u8>>, u64)> = Vec::new();
         self.state_data.log.iter().skip(i as usize).cloned().for_each(|entry| {
@@ -330,6 +344,7 @@ impl Handler<ReplicateLog> for Raft {
         }
         match self.nodes.get(&msg.follower_id) {
             Some(addr) => {
+                info!("RAFT: SENDING LOGREQUEST");
                 addr.do_send(
                     NodeMsgs::LogRequest(
                         LogRequest::new(
@@ -367,7 +382,7 @@ impl Handler<LogRequest> for Raft {
     type Result = LogResponse;
 
     fn handle(&mut self, msg: LogRequest, ctx: &mut Context<Self>) -> Self::Result {
-        
+        info!("RAFT: RECEIVED LOGREQUEST");
         if msg.term > self.state_data.current_term {
             self.state_data.current_term = msg.term;
             self.state_data.voted_for = None;
@@ -380,6 +395,7 @@ impl Handler<LogRequest> for Raft {
         }
 
         if msg.term == self.state_data.current_term && log_ok {
+            info!("RAFT: I AM FOLLOWER");
             self.state_data.current_role = Role::Follower;
             self.state_data.current_leader = Some(msg.leader_id);
             let elen = msg.entries.len();
@@ -396,6 +412,7 @@ impl Handler<LogResponse> for Raft {
     type Result = ();
 
     fn handle(&mut self, msg: LogResponse, ctx: &mut Context<Self>) -> Self::Result {
+        info!("RAFT: RECEIVED LOGRESPONSE");
         if msg.current_term == self.state_data.current_term && self.state_data.current_role == Role::Leader {
             if msg.success == true && msg.ack >= *self.state_data.acked_length.get(&msg.node_id).unwrap_or(&0) {
                 self.state_data.sent_length.insert(msg.node_id, msg.ack);
@@ -406,6 +423,7 @@ impl Handler<LogResponse> for Raft {
                 ctx.address().do_send(ReplicateLog{leader_id: self.node_id, follower_id: msg.node_id});
             }
         }else if msg.current_term > self.state_data.current_term {
+            info!("RAFT: I AM FOLLOWER");
             self.state_data.current_term = msg.current_term;
             self.state_data.current_role = Role::Follower;
             self.state_data.voted_for = None;
@@ -429,6 +447,7 @@ impl Handler<NotifyUUID> for Raft {
     type Result = ();
 
     fn handle(&mut self, msg: NotifyUUID, ctx: &mut Context<Self>) -> Self::Result {
+        info!("RAFT: RECEIVED NOTIFYUUID");
         self.nodes.insert(msg.node_id, msg.addr);
         ()
     }
