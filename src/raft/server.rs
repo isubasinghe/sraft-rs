@@ -93,27 +93,24 @@ impl RaftService for RaftServiceImpl {
     }
 }
 
-pub struct ExecutionContext {
-
-}
-
 pub fn start(addr: String, addrs: Vec<String>, id: u128) -> Result<i32, Box<dyn std::error::Error>> {
     info!("SERVER: Starting server");
-
-    let system = actix::System::new("test");
+    let rt = Arc::new(Runtime::new().unwrap());
+    let mut system = actix::System::new("test");
     
     let addr_server = addr.parse()?;
     let mut app = None;
 
     let uuid = uuid_to_uuid_(Uuid::from_u128(id));
-    
+
+    let rt_ = rt.clone();
     let raft = system.block_on(async move {
         let raft = Raft::create(|ctx| {
             let raft = ctx.address();
             let app_ = Application::new(raft.clone().recipient()).start();
             app = Some(app_.clone());
             for i in 0..(addrs.len()) {
-                Client::new(addrs[i].clone(), raft.clone()).start();
+                Client::new(addrs[i].clone(), raft.clone(), rt_.clone()).start();
             }
             let state_data = StateData::default();
             Raft{
@@ -129,9 +126,7 @@ pub fn start(addr: String, addrs: Vec<String>, id: u128) -> Result<i32, Box<dyn 
         raft
     });
     let greeter = RaftServiceImpl{raft: Arc::new(raft), uuid};
-
-    println!("RUNNING");
-    let rt = Runtime::new().unwrap();
+    
 
     rt.spawn(async move {
         // tonic server

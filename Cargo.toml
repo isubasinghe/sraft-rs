@@ -7,8 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-actix = "0.11.0-beta.1"
-actix-rt = "2.0.0-beta.2"
+actix = "0.10.0"
 uuid = { version = "0.8.2", features = ["serde", "v4"] }
 tokio = { version = "1", features = ["full", "rt", "net", "parking_lot", "signal", "sync", "time"] }
 futures = { version = "0.3.12", features = ["thread-pool"]}
@@ -22,7 +21,7 @@ crossbeam-channel = "0.5.0"
 kv = "0.22.0"
 serde = "1.0.122"
 bincode = "1.3.1"
-actix-web = "4.0.0-beta.1"
+clap = "3.0.0-beta.2"
 
 [build-dependencies]
 tonic-build = "0.4"
