@@ -1,6 +1,5 @@
 use actix::prelude::*;
-use futures::executor::block_on;
-use std::time::Duration;
+use tokio::time::{sleep, Duration};
 use tracing::{info, warn, error};
 use std::sync::Arc;
 use crate::raft::state::Raft;
@@ -42,7 +41,7 @@ impl Actor for Client {
         let fut = async move {
             loop {
                 info!("CLIENT: Attempting connect");
-                match rt.block_on(RaftServiceClient::connect(format!("http://{0}", addr.clone()))) {
+                match RaftServiceClient::connect(format!("http://{0}", addr.clone())).await {
                     Ok(mut client) => {
                         info!("CLIENT: ESTABLISHED CONNECTION");
                         let uuid = match client.get_uuid(()).await {
@@ -61,11 +60,10 @@ impl Actor for Client {
                     }
                 }
                 warn!("CLIENT: SLEEPING FOR 10 seconds");
-                actix::clock::delay_for(Duration::from_secs(10)).await;
+                sleep(Duration::from_millis(10000)).await;
             }
         };
-        actix::spawn(fut);
-
+        rt.spawn(fut);
     }
 }
 

@@ -3,42 +3,42 @@ use uuid::Uuid;
 use std::sync::Arc;
 
 
-#[derive(Message)]
+#[derive(Message, Debug)]
 #[rtype(result="()")]
 pub struct Timeout;
 
-#[derive(Message)]
+#[derive(Message, Debug)]
 #[rtype(result="()")]
 pub struct Crash;
 
-#[derive(Message)]
+#[derive(Message, Debug)]
 #[rtype(result="()")]
 pub struct ReplicateLog {
     pub leader_id: Uuid, 
     pub follower_id: Uuid
 }
 
-#[derive(Message, Clone)]
+#[derive(Message, Clone, Debug)]
 #[rtype(result="()")]
 pub struct BroadcastMsg {
     pub data: Arc<Vec<u8>>
 }
 
-#[derive(MessageResponse, Clone)]
+#[derive(MessageResponse, Clone, Debug)]
 #[derive(Message)]
 #[rtype(result="VoteResponse")]
 pub struct VoteRequest(pub Uuid, pub u64, pub u64, pub u64);
 
-#[derive(MessageResponse)]
+#[derive(MessageResponse, Debug)]
 #[derive(Message)]
 #[rtype(result="()")]
 pub struct VoteResponse(pub Uuid, pub u64, pub bool);
 
-#[derive(Message)]
+#[derive(Message, Debug)]
 #[rtype(result="()")]
 pub struct ReplicateLogAllExcept;
 
-#[derive(Message, Clone)]
+#[derive(Message, Clone, Debug)]
 #[rtype(result="LogResponse")]
 pub struct LogRequest {
     pub leader_id: Uuid,
@@ -54,7 +54,7 @@ impl LogRequest {
         LogRequest{leader_id, term, log_length, log_term, leader_commit, entries}
     }
 }
-#[derive(MessageResponse)]
+#[derive(MessageResponse, Debug)]
 #[derive(Message)]
 #[rtype(result="()")]
 pub struct LogResponse {
@@ -70,7 +70,7 @@ impl LogResponse {
     }
 }
 
-#[derive(Message, Clone)]
+#[derive(Message, Clone, Debug)]
 #[rtype(result="()")]
 pub enum NodeMsgs {
     VoteRequest(VoteRequest),
@@ -78,22 +78,22 @@ pub enum NodeMsgs {
     BroadcastMsg(BroadcastMsg)
 }
 
-#[derive(Message, Clone)]
+#[derive(Message, Clone, Debug)]
 #[rtype(result="()")]
 pub struct AppMsg {
     pub data: Arc<Vec<u8>>
 }
 
-#[derive(Message, Clone)]
+#[derive(Message, Clone, Debug)]
 #[rtype(result="NodesHash")]
 pub struct GetNodesHash;
 
-#[derive(MessageResponse)]
+#[derive(MessageResponse, Debug)]
 pub struct NodesHash {
     pub id: u64
 }
 
-#[derive(Message)]
+#[derive(Message, Debug)]
 #[rtype(result="")]
 pub struct NotifyUUID {
     pub node_id: Uuid, 

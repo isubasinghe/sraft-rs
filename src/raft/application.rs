@@ -4,7 +4,7 @@ use kv::*;
 use serde::{Serialize, Deserialize};
 use crate::raft::messages::*;
 
-#[derive(Message, Serialize, Deserialize)]
+#[derive(Message, Serialize, Deserialize, Debug)]
 #[rtype(result="ReturnVal")]
 pub enum ApplicationActions {
     Insert(String, String),
@@ -13,7 +13,7 @@ pub enum ApplicationActions {
     Update(String, String)
 }
 
-#[derive(MessageResponse)]
+#[derive(MessageResponse, Debug)]
 pub enum ReturnVal {
     GetValue(Option<Vec<u8>>),
     Deleted,

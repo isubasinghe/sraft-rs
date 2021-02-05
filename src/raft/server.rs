@@ -1,11 +1,13 @@
 
+use actix_web::{get, web, App, middleware, HttpServer, Responder, HttpRequest, HttpResponse};
 use tonic::{transport::Server, Request, Response, Status};
 use uuid::Uuid;
 use actix::prelude::*;
 use std::sync::Arc;
-use tracing::{info};
+use tracing::{info, instrument};
 use std::collections::{BTreeMap};
 use tokio::runtime::Runtime;
+use std::borrow::Borrow;
 use crate::raft::client::*;
 use crate::raft::messages::*;
 use crate::raft::state::{Raft, StateData};
@@ -93,22 +95,33 @@ impl RaftService for RaftServiceImpl {
     }
 }
 
-pub fn start(addr: String, addrs: Vec<String>, id: u128) -> Result<i32, Box<dyn std::error::Error>> {
+async fn index(
+    item: web::Json<ApplicationActions>, 
+    addr: web::Data<Addr<Application>>,
+    req: HttpRequest,
+) -> HttpResponse {
+    let x = addr.borrow();
+    x.do_send(item.0);
+    HttpResponse::Ok().json("")
+}
+
+pub fn start(addr: String, addrs: Vec<String>, id: u128, start_http: bool) -> Result<i32, Box<dyn std::error::Error>> {
     info!("SERVER: Starting server");
     let rt = Arc::new(Runtime::new().unwrap());
     let mut system = actix::System::new("test");
     
     let addr_server = addr.parse()?;
-    let mut app = None;
 
     let uuid = uuid_to_uuid_(Uuid::from_u128(id));
 
     let rt_ = rt.clone();
-    let raft = system.block_on(async move {
+    let (raft, app): (Addr<Raft>, Addr<Application>) = system.block_on(async move {
+        let mut app_outer = None;
         let raft = Raft::create(|ctx| {
             let raft = ctx.address();
-            let app_ = Application::new(raft.clone().recipient()).start();
-            app = Some(app_.clone());
+            let app = Application::new(raft.clone().recipient()).start();
+            app_outer = Some(app.clone());
+            let app_recipient = app.clone().recipient();
             for i in 0..(addrs.len()) {
                 Client::new(addrs[i].clone(), raft.clone(), rt_.clone()).start();
             }
@@ -119,11 +132,11 @@ pub fn start(addr: String, addrs: Vec<String>, id: u128) -> Result<i32, Box<dyn 
                 timer_handle: None,
                 nodes: BTreeMap::new(),
                 replicator_handle: None,
-                app: app_.recipient()
+                app: app_recipient
     
             }
         });
-        raft
+        (raft, app_outer.unwrap())
     });
     let greeter = RaftServiceImpl{raft: Arc::new(raft), uuid};
     
@@ -137,7 +150,25 @@ pub fn start(addr: String, addrs: Vec<String>, id: u128) -> Result<i32, Box<dyn 
     });
 
     info!("SERVER: Started server");
+    let http_server_fut = async move {
+
+        HttpServer::new(move || {
     
+            App::new()
+                .data(app.clone()) // add shared state
+                // enable logger
+                .wrap(middleware::Logger::default())
+                // register simple handler
+                .service(web::resource("/").to(index))
+        })
+        .bind("127.0.0.1:8080")?
+        .run()
+        .await
+    };
+
+    if start_http {
+        system.block_on(http_server_fut);
+    }
     system.run();
 
     Ok(1)

@@ -50,7 +50,10 @@ pub struct Opts {
     nodes: Vec<String>,
 
     #[clap(short, long, default_value="info")]
-    logging: Logging
+    logging: Logging,
+
+    #[clap(short, long)]
+    kv_api: bool
 }
 
 fn main()  {
@@ -68,7 +71,7 @@ fn main()  {
         .with_max_level(trace_level)
         // sets this to be the default, global collector for this application.
         .init();
-    let out = start(opts.host, opts.nodes, opts.id);
+    let out = start(opts.host, opts.nodes, opts.id, opts.kv_api);
     println!("{:?}", out);
 
 }

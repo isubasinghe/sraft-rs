@@ -2,21 +2,22 @@ use actix::prelude::*;
 use uuid::Uuid;
 use std::collections::{HashSet, HashMap, BTreeMap};
 use std::iter::FromIterator;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::sync::Arc;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use tracing::{info, span};
+use tracing::{info};
+use rand::prelude::*;
 
 use crate::raft::messages::*;
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 pub enum Role {
     Follower,
     Candidate,
     Leader
 }
-
+#[derive(Eq, PartialEq, Debug)]
 pub struct StateData {
     current_term: u64,
     voted_for: Option<Uuid>,
@@ -27,6 +28,7 @@ pub struct StateData {
     votes_received: HashSet<Uuid>,
     sent_length: HashMap<Uuid, u64>, 
     acked_length: HashMap<Uuid, u64>,
+    last_msg_time: Instant
 }
 
 impl Default for StateData 
@@ -42,10 +44,11 @@ impl Default for StateData
             votes_received: HashSet::new(),
             sent_length: HashMap::new(),
             acked_length: HashMap::new(),
+            last_msg_time: Instant::now()
         }
     }
 }
-
+#[derive(Eq, PartialEq, Debug)]
 pub struct Raft
 {
     pub state_data: StateData,
@@ -108,55 +111,46 @@ impl Raft {
         }
 
     }
-
     fn simulate_crash(&mut self, addr: Addr<Raft>) {
         info!("RAFT: SIMULATING CRASH");
         addr.do_send(Crash);
     }
-
     fn reset_timers(&mut self, ctx: &mut Context<Self>) {
         info!("RAFT: RESETTING TIMERS");
-        self.timer_handle.map(|handle| {
-            ctx.cancel_future(handle);
-        });
-        self.replicator_handle.map(|handle| {
-            ctx.cancel_future(handle);
-        });
-        self.timer_handle = None;
-        self.replicator_handle = None;
     }
 }
 
 impl Actor for Raft {
     type Context = Context<Self>;
-
     fn started(&mut self, ctx: &mut Context<Self>) {
         info!("RAFT: Raft started");
-        self.timer_handle = Some(ctx.run_later(Duration::from_secs(1), |act, ctx| {
-            info!("RAFT: Sending timeout");
-            ctx.address().do_send(Timeout);
-        }));
-        info!("RAFT: Timer started");
-    }
+        let mut rng = thread_rng();
 
+        self.state_data.last_msg_time = Instant::now();
+        self.replicator_handle = Some(ctx.run_interval(Duration::from_secs(2), |act, ctx| {
+            if act.state_data.current_role == Role::Leader {
+                ctx.address().do_send(ReplicateLogAllExcept);
+            }
+        }));
+        self.timer_handle = Some(ctx.run_interval(Duration::from_secs(1), move |act, ctx| {
+            let new_time = Instant::now();
+            let duration = new_time.duration_since(act.state_data.last_msg_time);
+            
+            let time_ms: u64 = rng.gen_range(150..350);
+            if act.state_data.current_role != Role::Leader && duration > Duration::from_millis(time_ms){
+                ctx.address().do_send(Timeout);
+            }
+
+            act.state_data.last_msg_time = new_time;
+        }));
+    }
     fn stopped(&mut self, ctx: &mut Context<Self>) {
         info!("RAFT: Stopping raft");
-        self.timer_handle.map(|handle| {
-            ctx.cancel_future(handle);
-            info!("RAFT: Cancelled timer handle");
-        });
-        self.timer_handle = None;
-        self.replicator_handle.map(|handle| {
-            ctx.cancel_future(handle);
-            info!("RAFT: Cancelled replicator handle");
-        });
-        self.replicator_handle = None;
     }
 }
 
 impl Handler<Crash> for Raft {
     type Result = ();
-
     fn handle(&mut self, _msg: Crash, ctx: &mut Context<Self>) -> Self::Result {
         info!("RAFT: Handling crash");
         self.state_data.current_role = Role::Follower;
@@ -170,7 +164,6 @@ impl Handler<Crash> for Raft {
 
 impl Handler<Timeout> for Raft {
     type Result = ();
-
     fn handle(&mut self, _msg: Timeout, ctx: &mut Context<Self>) -> Self::Result {
         info!("RAFT: Handling timeout");
         self.state_data.current_term += 1;
@@ -192,16 +185,6 @@ impl Handler<Timeout> for Raft {
         for (_, v) in &self.nodes {
             v.do_send(msg.clone()).unwrap();
         }
-        // Cancel the old election timer
-        self.timer_handle.map(|x| {
-            ctx.cancel_future(x);
-        });
-
-        // Start a new election timer
-        self.timer_handle = Some(ctx.run_later(Duration::from_secs(1), |act, ctx| {
-            info!("RAFT SENDING TIMEOUT");
-            ctx.address().do_send(Timeout);
-        }));
         ()
     }
 }
@@ -209,7 +192,6 @@ impl Handler<Timeout> for Raft {
 impl Handler<VoteRequest> for Raft {
     
     type Result = VoteResponse;
-
     fn handle(&mut self, msg: VoteRequest, ctx: &mut Context<Self>) -> Self::Result {
         info!("RAFT: RECEIVED VOTEREQUEST");
         let mut my_log_term = 0;
@@ -236,13 +218,8 @@ impl Handler<VoteRequest> for Raft {
 
 impl Handler<VoteResponse> for Raft {
     type Result = ();
-
     fn handle(&mut self, msg: VoteResponse, ctx: &mut Context<Self>) -> Self::Result {
         info!("RAFT: RECEIVED VOTERESPONSE");
-        match self.replicator_handle {
-            Some(handle) => {ctx.cancel_future(handle);},
-            None => {}
-        };
 
         if (self.state_data.current_role == Role::Candidate) && 
             self.state_data.current_term == msg.1 && msg.2 {
@@ -252,20 +229,12 @@ impl Handler<VoteResponse> for Raft {
                 info!("RAFT: I AM LEADER");
                 self.state_data.current_role = Role::Leader;
                 self.state_data.current_leader = Some(self.node_id);
-                
-                match self.timer_handle {
-                    Some(handle) => {ctx.cancel_future(handle);}
-                    None => {}
-                }
-                self.timer_handle = Some(ctx.run_interval(Duration::from_secs(5), |act, ctx| {
-                    ctx.address().do_send(ReplicateLogAllExcept);
-                }));
 
                 for (uuid, _) in &self.nodes {
                     if *uuid != self.node_id {
                         self.state_data.sent_length.insert(*uuid, self.state_data.log.len() as u64);
                         self.state_data.acked_length.insert(*uuid, 0);
-                        info!("RAFT: ISSUING REPLICATELOG");
+                        info!("RAFT: ISSUING REPLICATELOG FROM VOTERESPONSE");
                         ctx.address().do_send(ReplicateLog{leader_id: self.node_id, follower_id: *uuid});
                     }
                 }
@@ -279,11 +248,6 @@ impl Handler<VoteResponse> for Raft {
             info!("RAFT: I AM FOLLOWER");
             self.state_data.current_role = Role::Follower;
             self.state_data.voted_for = None;
-            match self.timer_handle {
-                Some(handle) => {ctx.cancel_future(handle);}
-                None => {}
-            }
-            self.timer_handle = None;
         }
         ()
     }
@@ -291,7 +255,6 @@ impl Handler<VoteResponse> for Raft {
 
 impl Handler<BroadcastMsg> for Raft {
     type Result = ();
-
     fn handle(&mut self, msg: BroadcastMsg, ctx: &mut Context<Self>) -> Self::Result {
         info!("RAFT: HANDLING TOTAL ORDER BROADCAST");
         if self.state_data.current_role == Role::Leader {
@@ -300,7 +263,7 @@ impl Handler<BroadcastMsg> for Raft {
 
             for (uuid, _) in &self.nodes {
                 if *uuid != self.node_id {
-                    info!("RAFT: ISSUING REPLICATELOG");
+                    info!("RAFT: ISSUING REPLICATELOG FROM BROADCASTMSG");
                     ctx.address().do_send(ReplicateLog{leader_id: self.node_id, follower_id: *uuid});
                 }
             }
@@ -336,17 +299,19 @@ impl Handler<ReplicateLog> for Raft {
     fn handle(&mut self, msg: ReplicateLog, ctx: &mut Context<Self>) -> Self::Result {
         info!("RAFT: RECEIVED REPLICATELOG");
         let i = *self.state_data.sent_length.get(&msg.follower_id).unwrap_or(&0);
+        info!("RAFT: SENT LENGTH {:?} = {1}", &msg.follower_id, i);
         let mut entries: Vec<(Arc<Vec<u8>>, u64)> = Vec::new();
         self.state_data.log.iter().skip(i as usize).cloned().for_each(|entry| {
             entries.push(entry);
         });
+        info!("RAFT: BROADCASTING {:?}", entries);
         let mut prev_log_term: u64 = 0;
         if i > 0 {
             prev_log_term = self.state_data.log[(i+1) as usize].1;
         }
         match self.nodes.get(&msg.follower_id) {
             Some(addr) => {
-                info!("RAFT: SENDING LOGREQUEST");
+                info!("RAFT: SENDING LOGREQUEST TO {:?}", &msg.follower_id);
                 addr.do_send(
                     NodeMsgs::LogRequest(
                         LogRequest::new(
@@ -372,15 +337,13 @@ impl Handler<ReplicateLog> for Raft {
 
 impl Handler<ReplicateLogAllExcept> for Raft {
     type Result = ();
-
     #[inline(always)]
     fn handle(&mut self, _: ReplicateLogAllExcept, ctx: &mut Context<Self>) -> Self::Result {
-        info!("RAFT: SENDING REPLICATELOG TO ALL");
 
         if self.state_data.current_role == Role::Leader {
             for (uuid, _) in &self.nodes {
                 if *uuid != self.node_id {
-                    info!("RAFT: ISSUING REPLICATELOG");
+                    info!("RAFT: ISSUING REPLICATELOG FROM REPLICATELOGALLEXCEPT");
                     ctx.address().do_send(ReplicateLog{leader_id: self.node_id, follower_id: *uuid});
                 }
             }
@@ -392,9 +355,8 @@ impl Handler<ReplicateLogAllExcept> for Raft {
 
 impl Handler<LogRequest> for Raft {
     type Result = LogResponse;
-
     fn handle(&mut self, msg: LogRequest, ctx: &mut Context<Self>) -> Self::Result {
-        info!("RAFT: RECEIVED LOGREQUEST");
+        info!("RAFT: RECEIVED LOGREQUEST, {:?}", msg.entries);
         if msg.term > self.state_data.current_term {
             self.state_data.current_term = msg.term;
             self.state_data.voted_for = None;
@@ -422,7 +384,6 @@ impl Handler<LogRequest> for Raft {
 
 impl Handler<LogResponse> for Raft {
     type Result = ();
-
     fn handle(&mut self, msg: LogResponse, ctx: &mut Context<Self>) -> Self::Result {
         info!("RAFT: RECEIVED LOGRESPONSE");
         if msg.current_term == self.state_data.current_term && self.state_data.current_role == Role::Leader {
@@ -447,7 +408,6 @@ impl Handler<LogResponse> for Raft {
 
 impl Handler<GetNodesHash> for Raft {
     type Result = NodesHash;
-
     fn handle(&mut self, _: GetNodesHash, _: &mut Context<Self>) -> Self::Result {
         let mut hasher = DefaultHasher::new();
         self.nodes.hash(&mut hasher);
@@ -457,7 +417,6 @@ impl Handler<GetNodesHash> for Raft {
 
 impl Handler<NotifyUUID> for Raft {
     type Result = ();
-
     fn handle(&mut self, msg: NotifyUUID, ctx: &mut Context<Self>) -> Self::Result {
         info!("RAFT: RECEIVED NOTIFYUUID");
         self.nodes.insert(msg.node_id, msg.addr);
