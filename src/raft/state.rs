@@ -307,7 +307,7 @@ impl Handler<ReplicateLog> for Raft {
         info!("RAFT: BROADCASTING {:?}", entries);
         let mut prev_log_term: u64 = 0;
         if i > 0 {
-            prev_log_term = self.state_data.log[(i+1) as usize].1;
+            prev_log_term = self.state_data.log[(i-1) as usize].1;
         }
         match self.nodes.get(&msg.follower_id) {
             Some(addr) => {
