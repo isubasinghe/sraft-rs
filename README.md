@@ -7,3 +7,4 @@ process crashes. This is due to lack of persistance on the log. So yeah this is 
 ### TODO 
 * PreVote and CheckQuorum is needed badly to ensure liveness in the prescence of network faults.
 * Fix loss of messages when no leader is elected
+* Critical bug breaks linearizability (the entire protocol pretty much, need to fix this)
